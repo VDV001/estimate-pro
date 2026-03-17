@@ -48,6 +48,14 @@ type Member struct {
 	Role      Role   `json:"role"`
 }
 
+type MemberWithUser struct {
+	ProjectID string `json:"project_id"`
+	UserID    string `json:"user_id"`
+	Role      Role   `json:"role"`
+	UserName  string `json:"user_name"`
+	UserEmail string `json:"user_email"`
+}
+
 type Workspace struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
