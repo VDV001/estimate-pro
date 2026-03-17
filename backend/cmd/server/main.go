@@ -27,6 +27,10 @@ import (
 	projectHandler "github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/handler"
 	projectRepo "github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/repository"
 	projectUsecase "github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/usecase"
+
+	documentHandler "github.com/daniilrusanov/estimate-pro/backend/internal/modules/document/handler"
+	documentRepo "github.com/daniilrusanov/estimate-pro/backend/internal/modules/document/repository"
+	documentUsecase "github.com/daniilrusanov/estimate-pro/backend/internal/modules/document/usecase"
 )
 
 func main() {
@@ -67,9 +71,8 @@ func main() {
 	}
 	slog.Info("s3 client ready")
 
-	// Still unused — will be wired into document/notification modules
+	// Still unused — will be wired into notification module
 	_ = rdb
-	_ = s3Client
 
 	// JWT
 	jwtService := jwt.NewService(cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
@@ -80,15 +83,22 @@ func main() {
 	projectRepository := projectRepo.NewPostgresProjectRepository(pool)
 	memberRepo := projectRepo.NewPostgresMemberRepository(pool)
 
+	// Document repositories
+	docRepository := documentRepo.NewPostgresDocumentRepository(pool)
+	versionRepo := documentRepo.NewPostgresVersionRepository(pool)
+	fileStorage := documentRepo.NewS3FileStorage(s3Client)
+
 	// Usecases
 	authUC := authUsecase.New(userRepo, workspaceRepo, jwtService)
 	projectUC := projectUsecase.New(projectRepository, workspaceRepo, memberRepo)
+	documentUC := documentUsecase.New(docRepository, versionRepo, fileStorage)
 
 	// Handlers
 	authH := authHandler.New(authUC)
 	userFinder := projectRepo.NewUserFinderAdapter(userRepo)
 	memberUC := projectUsecase.NewMemberUsecase(memberRepo, projectRepository, userFinder)
 	projectH := projectHandler.New(projectUC, memberUC, workspaceRepo)
+	documentH := documentHandler.New(documentUC)
 
 	// Router
 	r := chi.NewRouter()
@@ -107,6 +117,7 @@ func main() {
 	// Module routes
 	authH.Register(r, jwtService)
 	projectH.Register(r, jwtService)
+	documentH.Register(r, jwtService)
 
 	// Server
 	srv := &http.Server{
