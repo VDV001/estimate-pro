@@ -28,6 +28,7 @@ backend/server
 
 # Tools
 .serena/
+.taskmaster/
 
 # Test
 coverage.out
