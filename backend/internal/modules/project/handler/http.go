@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/domain"
 	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/usecase"
@@ -67,8 +69,41 @@ func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, workspaces)
 }
 
+type createWorkspaceRequest struct {
+	Name string `json:"name"`
+}
+
 func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
-	sharedErrors.InternalError(w, "not implemented")
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		sharedErrors.Unauthorized(w, "missing user context")
+		return
+	}
+
+	var req createWorkspaceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sharedErrors.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		sharedErrors.BadRequest(w, "name is required")
+		return
+	}
+
+	workspace := &domain.Workspace{
+		ID:        uuid.New().String(),
+		Name:      req.Name,
+		OwnerID:   userID,
+		CreatedAt: time.Now(),
+	}
+
+	if err := h.workspaceRepo.Create(r.Context(), workspace); err != nil {
+		sharedErrors.InternalError(w, "failed to create workspace")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, workspace)
 }
 
 type createProjectRequest struct {
