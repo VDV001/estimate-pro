@@ -186,6 +186,21 @@
     "notificationsDesc": "Configure how you receive notifications",
     "comingSoon": "Coming soon"
   },
+  "documents": {
+    "title": "Documents",
+    "upload": "Upload",
+    "uploading": "Uploading...",
+    "download": "Download",
+    "delete": "Delete",
+    "confirmDelete": "Delete document \"{name}\"?",
+    "empty": "No documents yet",
+    "emptyDesc": "Upload a spec or other project document",
+    "version": "Version",
+    "uploadedBy": "Uploaded by",
+    "fileSize": "Size",
+    "uploadError": "File upload error",
+    "deleteError": "Error deleting document"
+  },
   "notifications": {
     "title": "Notifications",
     "empty": "No new notifications",

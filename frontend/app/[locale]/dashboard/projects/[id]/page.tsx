@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
 import { getProject } from "@/features/projects/api";
 import { MembersList } from "@/features/projects/components/members-list";
+import { DocumentsList } from "@/features/documents/components/documents-list";
 import { Timeline } from "@/components/ui/timeline";
 import type { TimelineEntry } from "@/components/ui/timeline";
 
@@ -138,7 +139,7 @@ export default function ProjectDetailPage({
         <OverviewTab project={project} />
       )}
       {activeTab === "documents" && (
-        <DocumentsTab />
+        <DocumentsList projectId={id} />
       )}
       {activeTab === "members" && (
         <MembersList projectId={id} />
@@ -266,13 +267,3 @@ function OverviewTab({
   );
 }
 
-function DocumentsTab() {
-  const t = useTranslations("projects");
-
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <FileText className="h-12 w-12 text-muted-foreground/30 mb-4" />
-      <p className="text-sm text-muted-foreground">{t("comingSoon")}</p>
-    </div>
-  );
-}
