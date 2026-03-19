@@ -12,7 +12,7 @@ interface UserAvatarProps {
 const sizeClasses = {
   sm: "h-8 w-8 text-xs",
   md: "h-10 w-10 text-sm",
-  lg: "h-16 w-16 text-xl",
+  lg: "h-24 w-24 text-3xl",
 };
 
 function getInitials(name: string): string {
@@ -47,7 +47,7 @@ export function UserAvatar({ name, avatarUrl, size = "md", className }: UserAvat
   return (
     <div
       className={cn(
-        "rounded-full overflow-hidden flex items-center justify-center font-semibold text-white flex-shrink-0",
+        "rounded-full overflow-hidden flex items-center justify-center font-semibold text-white flex-shrink-0 aspect-square",
         sizeClasses[size],
         className,
       )}

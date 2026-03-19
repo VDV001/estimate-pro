@@ -248,6 +248,7 @@
     "profile": "Profile",
     "profileDesc": "Manage your profile information",
     "namePlaceholder": "Your name",
+    "avatarHint": "Hover to change avatar (coming soon)",
     "appearance": "Appearance",
     "theme": "Theme",
     "themeDesc": "Toggle between light and dark mode",

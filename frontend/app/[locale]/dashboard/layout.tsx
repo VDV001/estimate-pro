@@ -93,21 +93,21 @@ export default function DashboardLayout({
         <div className="flex items-center gap-3">
           <LocaleToggle />
           <ThemeToggle />
-          <HoverCard>
+          <HoverCard openDelay={200} closeDelay={100}>
             <HoverCardTrigger asChild>
               <button className="rounded-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
                 <UserAvatar name={user?.name} size="sm" />
               </button>
             </HoverCardTrigger>
-            <HoverCardContent align="end" className="w-64">
-              <div className="flex items-start gap-3">
+            <HoverCardContent align="end" className="w-72 p-5">
+              <div className="flex items-center gap-4">
                 <UserAvatar name={user?.name} size="md" />
-                <div className="space-y-1 min-w-0">
+                <div className="space-y-0.5 min-w-0">
                   <p className="text-sm font-semibold truncate">{user?.name}</p>
                   <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
                 </div>
               </div>
-              <div className="flex gap-2 mt-4">
+              <div className="flex gap-2 mt-6 pt-4 border-t border-border">
                 <Link href="/dashboard/settings" className="flex-1">
                   <Button variant="outline" size="sm" className="w-full gap-1.5">
                     <Settings className="h-3.5 w-3.5" />

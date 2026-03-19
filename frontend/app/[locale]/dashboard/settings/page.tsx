@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation } from "@tanstack/react-query";
-import { Bell, Globe, User, Check } from "lucide-react";
+import { Bell, Globe, User, Check, Camera } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -65,15 +65,24 @@ export default function SettingsPage() {
               {t("settings.profileDesc")}
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-4 pb-2">
-              <UserAvatar name={user?.name} size="lg" />
-              <div>
-                <p className="text-lg font-semibold">{user?.name}</p>
+          <CardContent className="pt-6">
+            {/* Avatar with upload */}
+            <div className="flex items-center gap-6 mb-8">
+              <div className="relative group flex-shrink-0">
+                <UserAvatar name={user?.name} size="lg" />
+                <label className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                  <Camera className="h-6 w-6 text-white" />
+                  <input type="file" accept="image/*" className="hidden" disabled />
+                </label>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xl font-semibold">{user?.name}</p>
                 <p className="text-sm text-muted-foreground">{user?.email}</p>
+                <p className="text-xs text-muted-foreground/50 mt-2">{t("settings.avatarHint")}</p>
               </div>
             </div>
-            <div className="space-y-2">
+
+            <div className="space-y-3 mb-8">
               <Label>{t("auth.name")}</Label>
               <Input
                 placeholder={t("settings.namePlaceholder")}
@@ -81,16 +90,8 @@ export default function SettingsPage() {
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <Label>{t("auth.email")}</Label>
-              <Input
-                type="email"
-                value={user?.email ?? ""}
-                disabled
-                className="opacity-60"
-              />
-            </div>
-            <div className="flex items-center gap-2">
+
+            <div className="flex items-center gap-3">
               <Button
                 onClick={handleSave}
                 disabled={mutation.isPending || !name.trim() || name === user?.name}
