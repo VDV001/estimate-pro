@@ -20,6 +20,8 @@ import {
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import { Button } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
 
 export default function DashboardLayout({
@@ -91,9 +93,33 @@ export default function DashboardLayout({
         <div className="flex items-center gap-3">
           <LocaleToggle />
           <ThemeToggle />
-          <Link href="/dashboard/settings">
-            <UserAvatar name={user?.name} size="sm" />
-          </Link>
+          <HoverCard>
+            <HoverCardTrigger asChild>
+              <button className="rounded-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                <UserAvatar name={user?.name} size="sm" />
+              </button>
+            </HoverCardTrigger>
+            <HoverCardContent align="end" className="w-64">
+              <div className="flex items-start gap-3">
+                <UserAvatar name={user?.name} size="md" />
+                <div className="space-y-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                </div>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <Link href="/dashboard/settings" className="flex-1">
+                  <Button variant="outline" size="sm" className="w-full gap-1.5">
+                    <Settings className="h-3.5 w-3.5" />
+                    {t("dashboard.settings")}
+                  </Button>
+                </Link>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={handleLogout}>
+                  <LogOut className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </HoverCardContent>
+          </HoverCard>
         </div>
       </header>
 
@@ -109,29 +135,20 @@ export default function DashboardLayout({
               </div>
             </div>
 
-            {/* Footer — user info + logout */}
-            <div className="space-y-2">
+            {/* Footer — logout */}
+            <div
+              onClick={handleLogout}
+              className="cursor-pointer"
+            >
               <SidebarLink
                 link={{
-                  label: user?.name ?? "",
-                  href: "/dashboard/settings",
-                  icon: <UserAvatar name={user?.name} size="sm" />,
+                  label: t("auth.logout"),
+                  href: "#",
+                  icon: (
+                    <LogOut className="h-5 w-5 flex-shrink-0" />
+                  ),
                 }}
               />
-              <div
-                onClick={handleLogout}
-                className="cursor-pointer"
-              >
-                <SidebarLink
-                  link={{
-                    label: t("auth.logout"),
-                    href: "#",
-                    icon: (
-                      <LogOut className="h-5 w-5 flex-shrink-0" />
-                    ),
-                  }}
-              />
-              </div>
             </div>
           </SidebarBody>
         </Sidebar>
