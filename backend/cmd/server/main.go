@@ -37,6 +37,7 @@ import (
 
 	estimationHandler "github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/handler"
 	estimationRepo "github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/repo"
+	wsModule "github.com/daniilrusanov/estimate-pro/backend/internal/modules/ws"
 	estimationUsecase "github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/usecase"
 )
 
@@ -128,12 +129,30 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
+	// WebSocket hub + event emitter
+	wsHub := wsModule.NewHub()
+	go wsHub.Run()
+	emitEvent := func(eventType, projectID string) {
+		wsHub.Broadcast(wsModule.Event{Type: eventType, ProjectID: projectID})
+	}
+	documentH.SetOnEvent(emitEvent)
+	estimationH.SetOnEvent(emitEvent)
+	wsH := wsModule.NewHandler(wsHub, jwtService, func(userID string) []string {
+		projects, _, _ := projectRepository.ListByUser(context.Background(), userID, 100, 0)
+		ids := make([]string, len(projects))
+		for i, p := range projects {
+			ids[i] = p.ID
+		}
+		return ids
+	})
+
 	// OAuth handler
 	oauthH := authHandler.NewOAuthHandler(authUC, cfg.OAuth)
 
 	// Module routes
 	authH.Register(r, jwtService)
 	oauthH.Register(r)
+	wsH.Register(r)
 	projectH.Register(r, jwtService)
 	documentH.Register(r, jwtService)
 	estimationH.Register(r, jwtService)

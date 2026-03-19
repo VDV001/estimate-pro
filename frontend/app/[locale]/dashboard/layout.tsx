@@ -21,6 +21,8 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import { Toaster } from "@/components/ui/sonner";
+import { useWebSocket } from "@/hooks/use-websocket";
 import { Button } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
 
@@ -73,8 +75,11 @@ export default function DashboardLayout({
     },
   ];
 
+  useWebSocket();
+
   return (
     <AuthGuard>
+      <Toaster />
       <div className="flex flex-col h-screen overflow-hidden bg-background">
       {/* Top header bar — full width */}
       <header className="flex items-center justify-between py-3 pr-4 bg-background z-10 flex-shrink-0">

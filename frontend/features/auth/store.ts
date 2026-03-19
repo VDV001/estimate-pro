@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { getAccessToken } from "@/lib/api-client";
+import { getQueryClient } from "@/lib/query-client";
 import {
   login,
   register,
@@ -53,16 +54,19 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   loginUser: async (data: LoginRequest) => {
     const res = await login(data);
+    getQueryClient().clear();
     set({ user: res.user, isAuthenticated: true });
   },
 
   registerUser: async (data: RegisterRequest) => {
     const res = await register(data);
+    getQueryClient().clear();
     set({ user: res.user, isAuthenticated: true });
   },
 
   logoutUser: () => {
     logout();
+    getQueryClient().clear();
     set({ user: null, isAuthenticated: false });
   },
 

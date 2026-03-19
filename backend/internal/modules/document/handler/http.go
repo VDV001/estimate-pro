@@ -17,12 +17,27 @@ import (
 	"github.com/daniilrusanov/estimate-pro/backend/pkg/jwt"
 )
 
+type OnEvent func(eventType, projectID string)
+
 type Handler struct {
-	uc *usecase.DocumentUsecase
+	uc      *usecase.DocumentUsecase
+	onEvent OnEvent
 }
 
-func New(uc *usecase.DocumentUsecase) *Handler {
-	return &Handler{uc: uc}
+func New(uc *usecase.DocumentUsecase, onEvent ...OnEvent) *Handler {
+	h := &Handler{uc: uc}
+	if len(onEvent) > 0 {
+		h.onEvent = onEvent[0]
+	}
+	return h
+}
+
+func (h *Handler) SetOnEvent(fn OnEvent) { h.onEvent = fn }
+
+func (h *Handler) emit(eventType, projectID string) {
+	if h.onEvent != nil {
+		h.onEvent(eventType, projectID)
+	}
 }
 
 func (h *Handler) Register(r chi.Router, jwtService *jwt.Service) {
@@ -100,6 +115,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.emit("document.uploaded", projectID)
 	response.WriteJSON(w, http.StatusCreated, map[string]any{
 		"document": doc,
 		"version":  version,
