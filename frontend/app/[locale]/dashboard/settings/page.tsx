@@ -65,9 +65,9 @@ export default function SettingsPage() {
               {t("settings.profileDesc")}
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-6">
+          <CardContent className="pt-2">
             {/* Avatar with upload */}
-            <div className="flex items-center gap-6 mb-8">
+            <div className="flex items-center gap-6 mb-5">
               <div className="relative group flex-shrink-0">
                 <UserAvatar name={user?.name} avatarUrl={user?.avatar_url} size="lg" />
                 <label className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
@@ -81,6 +81,8 @@ export default function SettingsPage() {
                       if (!file) return;
                       try {
                         const updatedUser = await uploadAvatar(file);
+                        // Append timestamp to bust avatar cache
+                        updatedUser.avatar_url = `${updatedUser.avatar_url}?t=${Date.now()}`;
                         setUser(updatedUser);
                       } catch {
                         // silently fail for now
@@ -96,7 +98,7 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="space-y-3 mb-8">
+            <div className="space-y-3 mt-6 mb-6">
               <Label>{t("auth.name")}</Label>
               <Input
                 placeholder={t("settings.namePlaceholder")}
@@ -105,7 +107,7 @@ export default function SettingsPage() {
               />
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 mt-6">
               <Button
                 onClick={handleSave}
                 disabled={mutation.isPending || !name.trim() || name === user?.name}

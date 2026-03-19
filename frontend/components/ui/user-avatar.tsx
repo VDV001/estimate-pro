@@ -40,15 +40,27 @@ function getColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
+// Global cache — survives React remounts (locale switch)
+const avatarCache = new Map<string, string>();
+
 export function UserAvatar({ name, avatarUrl, size = "md", className }: UserAvatarProps) {
   const displayName = name || "?";
   const initials = getInitials(displayName);
   const bgColor = getColor(displayName);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  // Check cache first — instant render on remount
+  const cached = avatarUrl ? avatarCache.get(avatarUrl) : null;
+  const [blobUrl, setBlobUrl] = useState<string | null>(cached ?? null);
 
   useEffect(() => {
     if (!avatarUrl) {
       setBlobUrl(null);
+      return;
+    }
+
+    // Already cached — use it
+    if (avatarCache.has(avatarUrl)) {
+      setBlobUrl(avatarCache.get(avatarUrl)!);
       return;
     }
 
@@ -67,17 +79,16 @@ export function UserAvatar({ name, avatarUrl, size = "md", className }: UserAvat
       })
       .then((blob) => {
         if (!cancelled) {
-          setBlobUrl(URL.createObjectURL(blob));
+          const url = URL.createObjectURL(blob);
+          avatarCache.set(avatarUrl, url);
+          setBlobUrl(url);
         }
       })
       .catch(() => {
         if (!cancelled) setBlobUrl(null);
       });
 
-    return () => {
-      cancelled = true;
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
-    };
+    return () => { cancelled = true; };
   }, [avatarUrl]);
 
   return (
