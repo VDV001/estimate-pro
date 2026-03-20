@@ -40,6 +40,11 @@ export interface DocumentWithVersion {
   version: DocumentVersion;
 }
 
+export interface DocumentWithLatestVersion {
+  document: Document;
+  latest_version: DocumentVersion;
+}
+
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
@@ -51,8 +56,8 @@ export async function listDocuments(projectId: string): Promise<Document[]> {
 export async function getDocument(
   projectId: string,
   docId: string
-): Promise<DocumentWithVersion> {
-  return apiClient<DocumentWithVersion>(
+): Promise<DocumentWithLatestVersion> {
+  return apiClient<DocumentWithLatestVersion>(
     `/api/v1/projects/${projectId}/documents/${docId}`
   );
 }

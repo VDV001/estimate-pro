@@ -222,7 +222,7 @@ function DocumentCard({
     queryFn: () => getDocument(projectId, doc.id),
   });
 
-  const version = detail?.version;
+  const version = detail?.latest_version;
 
   const flagsMutation = useMutation({
     mutationFn: (flags: { is_signed: boolean; is_final: boolean }) =>

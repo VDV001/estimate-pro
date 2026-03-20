@@ -101,6 +101,10 @@ func (uc *DocumentUsecase) Get(ctx context.Context, id string) (*DocumentWithLat
 		return nil, fmt.Errorf("document.Get latest version: %w", err)
 	}
 
+	// Load tags
+	tags, _ := uc.versionRepo.GetTags(ctx, latest.ID)
+	latest.Tags = tags
+
 	return &DocumentWithLatestVersion{Document: doc, LatestVersion: latest}, nil
 }
 
