@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-0.3.0-blue)
+![Version](https://img.shields.io/badge/version-0.5.0-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -235,9 +235,23 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.3.0`**
+**Текущая версия: `0.5.0`**
 
 ### Changelog
+
+#### v0.5.0 (2026-03-20)
+- Document version flags: чекбокс «Подписана» и «Финальная версия»
+- Хэштеги для версий документов (max 3, 9 предустановленных + кастомные)
+- WebSocket real-time обновления с Sonner toast и анимированным сердечком
+- OAuth2 интеграция Google и GitHub (полный flow + sync avatar/name)
+- Аватар профиля: загрузка в MinIO, отображение через JWT, кеширование
+
+#### v0.4.0 (2026-03-19)
+- Redis refresh tokens с ротацией и logout endpoint
+- User avatar с upload и membership-based access control
+- Hover card профиля в header dashboard
+- Code quality: writeJSON deduplicated, cross-module import fix, RoleChecker refactor
+- 86 backend тестов, удалено 2000+ строк мёртвого кода
 
 #### v0.3.0 (2026-03-19)
 - Модуль оценок (Estimation): CRUD, PERT-агрегация, сводная таблица
