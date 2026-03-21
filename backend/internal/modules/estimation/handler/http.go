@@ -1,3 +1,6 @@
+// Copyright 2026 Daniil Vdovin. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package handler
 
 import (
@@ -9,12 +12,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/domain"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/usecase"
-	sharedErrors "github.com/daniilrusanov/estimate-pro/backend/internal/shared/errors"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/shared/middleware"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/shared/response"
-	"github.com/daniilrusanov/estimate-pro/backend/pkg/jwt"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/estimation/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/estimation/usecase"
+	sharedErrors "github.com/VDV001/estimate-pro/backend/internal/shared/errors"
+	"github.com/VDV001/estimate-pro/backend/internal/shared/middleware"
+	"github.com/VDV001/estimate-pro/backend/internal/shared/response"
+	"github.com/VDV001/estimate-pro/backend/pkg/jwt"
 )
 
 // RoleChecker checks if a user can perform estimation actions in a project.

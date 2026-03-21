@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/shared/errors"
-	"github.com/daniilrusanov/estimate-pro/backend/pkg/jwt"
+	"github.com/VDV001/estimate-pro/backend/internal/shared/errors"
+	"github.com/VDV001/estimate-pro/backend/pkg/jwt"
 )
 
 func TestAuth(t *testing.T) {

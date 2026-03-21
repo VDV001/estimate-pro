@@ -1,3 +1,6 @@
+// Copyright 2026 Daniil Vdovin. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package usecase
 
 import (
@@ -5,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/project/domain"
 )
 
 type MemberUsecase struct {

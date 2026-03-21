@@ -8,7 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
-	"github.com/daniilrusanov/estimate-pro/backend/pkg/jwt"
+	"github.com/VDV001/estimate-pro/backend/pkg/jwt"
 )
 
 var upgrader = websocket.Upgrader{

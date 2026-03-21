@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/auth/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/auth/domain"
 )
 
 type PostgresUserRepository struct {

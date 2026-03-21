@@ -1,3 +1,6 @@
+// Copyright 2026 Daniil Vdovin. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package handler
 
 import (
@@ -9,13 +12,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/domain"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/usecase"
-	sharedErrors "github.com/daniilrusanov/estimate-pro/backend/internal/shared/errors"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/shared/middleware"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/shared/pagination"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/shared/response"
-	"github.com/daniilrusanov/estimate-pro/backend/pkg/jwt"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/project/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/project/usecase"
+	sharedErrors "github.com/VDV001/estimate-pro/backend/internal/shared/errors"
+	"github.com/VDV001/estimate-pro/backend/internal/shared/middleware"
+	"github.com/VDV001/estimate-pro/backend/internal/shared/pagination"
+	"github.com/VDV001/estimate-pro/backend/internal/shared/response"
+	"github.com/VDV001/estimate-pro/backend/pkg/jwt"
 )
 
 type Handler struct {

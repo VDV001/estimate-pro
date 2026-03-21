@@ -8,8 +8,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/auth/domain"
-	"github.com/daniilrusanov/estimate-pro/backend/pkg/jwt"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/auth/domain"
+	"github.com/VDV001/estimate-pro/backend/pkg/jwt"
 )
 
 // --- Mock UserRepository ---

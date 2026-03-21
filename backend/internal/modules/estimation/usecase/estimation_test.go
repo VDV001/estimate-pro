@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/estimation/domain"
 )
 
 // --- Mock repositories ---

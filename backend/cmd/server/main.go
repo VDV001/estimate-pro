@@ -1,3 +1,6 @@
+// Copyright 2026 Daniil Vdovin. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package main
 
 import (
@@ -15,39 +18,39 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/config"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/infra/postgres"
-	infraredis "github.com/daniilrusanov/estimate-pro/backend/internal/infra/redis"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/infra/s3"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/shared/middleware"
-	"github.com/daniilrusanov/estimate-pro/backend/pkg/jwt"
+	"github.com/VDV001/estimate-pro/backend/internal/config"
+	"github.com/VDV001/estimate-pro/backend/internal/infra/postgres"
+	infraredis "github.com/VDV001/estimate-pro/backend/internal/infra/redis"
+	"github.com/VDV001/estimate-pro/backend/internal/infra/s3"
+	"github.com/VDV001/estimate-pro/backend/internal/shared/middleware"
+	"github.com/VDV001/estimate-pro/backend/pkg/jwt"
 
-	authHandler "github.com/daniilrusanov/estimate-pro/backend/internal/modules/auth/handler"
-	authRepo "github.com/daniilrusanov/estimate-pro/backend/internal/modules/auth/repository"
-	authUsecase "github.com/daniilrusanov/estimate-pro/backend/internal/modules/auth/usecase"
+	authHandler "github.com/VDV001/estimate-pro/backend/internal/modules/auth/handler"
+	authRepo "github.com/VDV001/estimate-pro/backend/internal/modules/auth/repository"
+	authUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/auth/usecase"
 
-	projectDomain "github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/domain"
-	projectHandler "github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/handler"
-	projectRepo "github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/repository"
-	projectUsecase "github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/usecase"
+	projectDomain "github.com/VDV001/estimate-pro/backend/internal/modules/project/domain"
+	projectHandler "github.com/VDV001/estimate-pro/backend/internal/modules/project/handler"
+	projectRepo "github.com/VDV001/estimate-pro/backend/internal/modules/project/repository"
+	projectUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/project/usecase"
 
-	documentHandler "github.com/daniilrusanov/estimate-pro/backend/internal/modules/document/handler"
-	documentRepo "github.com/daniilrusanov/estimate-pro/backend/internal/modules/document/repository"
-	documentUsecase "github.com/daniilrusanov/estimate-pro/backend/internal/modules/document/usecase"
+	documentHandler "github.com/VDV001/estimate-pro/backend/internal/modules/document/handler"
+	documentRepo "github.com/VDV001/estimate-pro/backend/internal/modules/document/repository"
+	documentUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/document/usecase"
 
-	estimationHandler "github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/handler"
-	estimationRepo "github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/repo"
-	estimationUsecase "github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/usecase"
+	estimationHandler "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/handler"
+	estimationRepo "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/repo"
+	estimationUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/usecase"
 
-	notifyModule "github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify"
-	notifyChannel "github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify/channel"
-	notifyHandler "github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify/handler"
-	notifyRepo "github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify/repository"
-	notifyUsecase "github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify/usecase"
+	notifyModule "github.com/VDV001/estimate-pro/backend/internal/modules/notify"
+	notifyChannel "github.com/VDV001/estimate-pro/backend/internal/modules/notify/channel"
+	notifyHandler "github.com/VDV001/estimate-pro/backend/internal/modules/notify/handler"
+	notifyRepo "github.com/VDV001/estimate-pro/backend/internal/modules/notify/repository"
+	notifyUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/notify/usecase"
 
-	wsModule "github.com/daniilrusanov/estimate-pro/backend/internal/modules/ws"
+	wsModule "github.com/VDV001/estimate-pro/backend/internal/modules/ws"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/infra/composio"
+	"github.com/VDV001/estimate-pro/backend/internal/infra/composio"
 )
 
 func main() {

@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/infra/composio"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/infra/composio"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/notify/domain"
 )
 
 type mockEmailLookup struct {

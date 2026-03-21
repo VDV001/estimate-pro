@@ -4,7 +4,7 @@
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Version](https://img.shields.io/badge/version-0.5.0-blue)
 
 **Коллаборативная платформа для оценки проектов.**
@@ -17,9 +17,12 @@
 * **PERT-агрегация** — сводная таблица с avg, min, max по каждой задаче. Расхождения оценок видны мгновенно
 * **Загрузка документов** — ТЗ в PDF, DOCX, XLSX, Markdown, TXT, CSV. Версионирование файлов в MinIO/S3
 * **Гибкие роли** — Admin, PM, Tech Lead, Developer, Observer. Каждая роль видит только то, что нужно
+* **OAuth2** — вход через Google и GitHub с синхронизацией аватара и имени
+* **Real-time обновления** — WebSocket уведомления с toast-оповещениями (Sonner)
+* **Уведомления** — in-app, email и Telegram. Настраиваемые предпочтения по каналам
 * **Мультиязычность** — Русский (по умолчанию) и English. Уведомления на языке пользователя
 * **Тёмная/светлая тема** — Адаптивный интерфейс с Three.js Aurora шейдером на лендинге
-* **JWT авторизация** — Access/Refresh токены, авто-обновление при 401
+* **JWT авторизация** — Access/Refresh токены в Redis, авто-обновление при 401
 
 ## Архитектура
 
@@ -30,17 +33,19 @@ backend/                         frontend/
 ├── cmd/server/main.go           ├── app/[locale]/
 ├── internal/                    │   ├── page.tsx (Landing)
 │   ├── modules/                 │   ├── (auth)/ (Login/Register)
-│   │   ├── auth/                │   └── dashboard/
-│   │   ├── project/             │       ├── page.tsx (Workspace)
-│   │   ├── document/            │       ├── projects/
-│   │   └── estimation/          │       ├── notifications/
-│   ├── shared/                  │       └── settings/
-│   │   ├── middleware/          ├── components/ui/
-│   │   ├── errors/              ├── features/
-│   │   ├── pagination/          │   ├── auth/
-│   │   └── response/            │   ├── projects/
-│   └── infra/                   │   ├── documents/
-│       ├── postgres/            │   ├── estimation/
+│   │   ├── auth/                │   ├── auth/callback/ (OAuth)
+│   │   ├── project/             │   └── dashboard/
+│   │   ├── document/            │       ├── page.tsx (Workspace)
+│   │   ├── estimation/          │       ├── projects/
+│   │   ├── notify/              │       ├── notifications/
+│   │   └── ws/                  │       └── settings/
+│   ├── shared/                  ├── components/ui/
+│   │   ├── middleware/          ├── features/
+│   │   ├── errors/              │   ├── auth/
+│   │   ├── pagination/          │   ├── projects/
+│   │   └── response/            │   ├── documents/
+│   └── infra/                   │   ├── estimation/
+│       ├── postgres/            │   ├── notifications/
 │       ├── redis/               │   └── activity/
 │       └── s3/                  └── lib/
 └── pkg/jwt/
@@ -111,6 +116,8 @@ cd backend && go test ./...
 | pgx | PostgreSQL драйвер |
 | go-redis | Redis клиент |
 | MinIO SDK | S3-совместимое хранилище |
+| gorilla/websocket | WebSocket real-time |
+| oauth2 | OAuth2 (Google, GitHub) |
 | bcrypt | Хэширование паролей |
 | JWT (HMAC) | Аутентификация |
 
@@ -126,6 +133,7 @@ cd backend && go test ./...
 | next-intl | Интернационализация (ru/en) |
 | shadcn/ui | UI компоненты |
 | Framer Motion | Анимации |
+| Sonner | Toast-уведомления |
 | Three.js | Aurora шейдер на лендинге |
 
 ### Инфраструктура
@@ -148,6 +156,27 @@ cd backend && go test ./...
 | POST | `/api/v1/auth/refresh` | Обновление токена |
 | GET | `/api/v1/auth/me` | Текущий пользователь |
 | PATCH | `/api/v1/auth/profile` | Обновление профиля |
+
+### OAuth
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/api/v1/auth/oauth/:provider` | Начало OAuth flow (google/github) |
+| GET | `/api/v1/auth/oauth/:provider/callback` | Callback OAuth |
+
+### Notifications
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/api/v1/notifications` | Список уведомлений |
+| GET | `/api/v1/notifications/unread-count` | Кол-во непрочитанных |
+| PATCH | `/api/v1/notifications/read-all` | Отметить все прочитанными |
+| PATCH | `/api/v1/notifications/:id/read` | Отметить прочитанным |
+| GET | `/api/v1/notifications/preferences` | Настройки уведомлений |
+| PUT | `/api/v1/notifications/preferences` | Обновить настройки |
+
+### WebSocket
+| Путь | Описание |
+|------|----------|
+| `/api/v1/ws` | WebSocket подключение (JWT auth через query param) |
 
 ### Workspaces
 | Метод | Путь | Описание |
@@ -204,7 +233,7 @@ cd backend && go test ./...
 ## Тестирование
 
 ```bash
-# Backend — 77 тестов
+# Backend — 106 тестов
 cd backend && go test ./... -v
 
 # Линтинг
@@ -219,17 +248,20 @@ cd frontend && npx tsc --noEmit
 | Модуль | Тесты | Покрытие |
 |--------|-------|---------|
 | `pkg/jwt` | 7 | Генерация, валидация, истечение |
-| `auth/usecase` | 7 | Register, Login, Refresh |
-| `project/domain` | 17 | CanManageMembers, IsValid, CanEstimate |
+| `auth/usecase` | 9 | Register, Login, Refresh, OAuth |
+| `project/domain` | 3 | CanManageMembers, IsValid, CanEstimate |
 | `project/usecase` | 14 | CRUD, Members, ListByUser |
 | `project/handler` | 6 | Workspace handlers |
-| `document/domain` | 10 | FileType.IsValid, MaxFileSize |
-| `document/usecase` | 11 | Upload, List, Get, Delete |
-| `estimation/domain` | 16 | PERT, Aggregation, Status |
-| `estimation/parser` | 11 | Парсинг документов |
-| `estimation/usecase` | 11 | CRUD, Submit, Aggregate |
-| `shared/middleware` | 10 | JWT Auth, UserIDFromContext |
-| `shared/pagination` | 13 | Parse, Offset |
+| `document/domain` | 2 | FileType.IsValid, MaxFileSize |
+| `document/usecase` | 7 | Upload, List, Get, Delete |
+| `estimation/domain` | 9 | PERT, Aggregation, Status |
+| `estimation/parser` | 12 | Парсинг документов |
+| `estimation/usecase` | 10 | CRUD, Submit, Aggregate |
+| `notify/usecase` | 13 | List, MarkRead, Preferences, Dispatch |
+| `notify/channel` | 4 | Email, Telegram каналы |
+| `ws` | 3 | Hub, Broadcast, Subscribe |
+| `shared/middleware` | 2 | JWT Auth, UserIDFromContext |
+| `shared/pagination` | 2 | Parse, Offset |
 
 ## Версионирование
 
@@ -274,4 +306,14 @@ cd frontend && npx tsc --noEmit
 
 ## Лицензия
 
-MIT
+Copyright © 2026 Daniil Vdovin.
+
+Этот проект лицензирован под **GNU Affero General Public License v3.0** — см. файл [LICENSE](LICENSE).
+
+Если вы модифицируете код и предоставляете его как сетевой сервис, вы обязаны опубликовать исходный код ваших изменений под той же лицензией.
+
+Для коммерческого использования без ограничений AGPL — свяжитесь с автором для получения коммерческой лицензии.
+
+### Контрибьюции
+
+Мы приветствуем вклад в проект! Перед отправкой Pull Request ознакомьтесь с [CONTRIBUTING.md](CONTRIBUTING.md) и подпишите [CLA](CLA.md).

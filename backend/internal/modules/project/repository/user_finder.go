@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	authDomain "github.com/daniilrusanov/estimate-pro/backend/internal/modules/auth/domain"
+	authDomain "github.com/VDV001/estimate-pro/backend/internal/modules/auth/domain"
 )
 
 // UserFinderAdapter adapts auth.UserRepository to project.domain.UserFinder.

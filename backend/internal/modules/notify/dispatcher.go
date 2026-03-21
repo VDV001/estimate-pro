@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify/domain"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify/usecase"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/notify/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/notify/usecase"
 )
 
 var eventMeta = map[string]struct {

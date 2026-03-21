@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/infra/composio"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/infra/composio"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/notify/domain"
 )
 
 // TelegramChatLookup resolves user ID to Telegram chat ID.

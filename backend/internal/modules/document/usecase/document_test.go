@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/document/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/document/domain"
 )
 
 // --- Inline mocks ---

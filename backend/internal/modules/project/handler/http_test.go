@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/domain"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/handler"
-	"github.com/daniilrusanov/estimate-pro/backend/internal/shared/middleware"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/project/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/project/handler"
+	"github.com/VDV001/estimate-pro/backend/internal/shared/middleware"
 )
 
 // --- Mock workspace repository ---

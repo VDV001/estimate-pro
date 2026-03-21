@@ -1,3 +1,6 @@
+// Copyright 2026 Daniil Vdovin. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package usecase
 
 import (
@@ -9,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/auth/domain"
-	"github.com/daniilrusanov/estimate-pro/backend/pkg/jwt"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/auth/domain"
+	"github.com/VDV001/estimate-pro/backend/pkg/jwt"
 )
 
 type AuthUsecase struct {

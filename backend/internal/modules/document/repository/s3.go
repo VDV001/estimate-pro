@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/infra/s3"
+	"github.com/VDV001/estimate-pro/backend/internal/infra/s3"
 )
 
 type S3FileStorage struct {

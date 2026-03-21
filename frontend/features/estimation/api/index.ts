@@ -1,3 +1,6 @@
+// Copyright 2026 Daniil Vdovin. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import { apiClient } from "@/lib/api-client";
 
 // ---------------------------------------------------------------------------

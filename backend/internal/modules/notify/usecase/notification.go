@@ -1,3 +1,6 @@
+// Copyright 2026 Daniil Vdovin. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package usecase
 
 import (
@@ -6,7 +9,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/notify/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/notify/domain"
 	"github.com/google/uuid"
 )
 

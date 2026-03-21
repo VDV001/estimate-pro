@@ -3,7 +3,7 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/project/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/project/domain"
 )
 
 func TestRole_CanManageMembers(t *testing.T) {

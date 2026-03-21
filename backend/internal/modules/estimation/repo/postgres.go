@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/daniilrusanov/estimate-pro/backend/internal/modules/estimation/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/estimation/domain"
 )
 
 // EstimationRepository

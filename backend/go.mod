@@ -1,4 +1,4 @@
-module github.com/daniilrusanov/estimate-pro/backend
+module github.com/VDV001/estimate-pro/backend
 
 go 1.25.0
 
