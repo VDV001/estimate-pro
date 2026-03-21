@@ -70,6 +70,7 @@ export function Timeline({ data }: { data: TimelineEntry[] }) {
       });
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- layout measurement requires setState after DOM read
     setSegments(newSegments);
   }, [data]);
 

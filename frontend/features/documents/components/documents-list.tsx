@@ -19,7 +19,7 @@ import {
   setVersionTags,
   PREDEFINED_TAGS,
 } from "@/features/documents/api";
-import type { Document, DocumentWithVersion } from "@/features/documents/api";
+import type { Document } from "@/features/documents/api";
 
 // ---------------------------------------------------------------------------
 // Helpers

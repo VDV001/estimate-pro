@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, Globe, User, Check, Camera, Mail, MessageCircle, BellRing } from "lucide-react";
@@ -28,14 +28,8 @@ export default function SettingsPage() {
   const t = useTranslations();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(user?.name ?? "");
   const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    if (user) {
-      setName(user.name);
-    }
-  }, [user]);
 
   const mutation = useMutation({
     mutationFn: (newName: string) => updateProfile({ name: newName }),

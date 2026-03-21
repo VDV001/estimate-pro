@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/lib/api-client";
 
@@ -54,6 +55,7 @@ export function UserAvatar({ name, avatarUrl, size = "md", className }: UserAvat
 
   useEffect(() => {
     if (!avatarUrl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync state with prop change
       setBlobUrl(null);
       return;
     }
@@ -102,17 +104,19 @@ export function UserAvatar({ name, avatarUrl, size = "md", className }: UserAvat
   return (
     <div
       className={cn(
-        "rounded-full overflow-hidden flex items-center justify-center font-semibold text-white flex-shrink-0 aspect-square",
+        "relative rounded-full overflow-hidden flex items-center justify-center font-semibold text-white flex-shrink-0 aspect-square",
         sizeClasses[size],
         className,
       )}
       style={{ backgroundColor: blobUrl ? undefined : bgColor }}
     >
       {blobUrl ? (
-        <img
+        <Image
           src={blobUrl}
           alt={displayName}
-          className="w-full h-full object-cover"
+          fill
+          className="object-cover"
+          unoptimized
         />
       ) : (
         initials

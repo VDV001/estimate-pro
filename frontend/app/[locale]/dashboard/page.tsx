@@ -106,7 +106,8 @@ export default function DashboardPage() {
         };
       })
       .filter((b) => b.totalHours > 0);
-  }, [projects, aggQueries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- projects reference is stable from ?? default
+  }, [projectsData, aggQueries]);
 
   const maxEstHours = Math.max(...estimationBars.map((b) => b.totalHours), 1);
   const totalEstHours = estimationBars.reduce((sum, b) => sum + b.totalHours, 0);
