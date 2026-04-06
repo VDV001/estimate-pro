@@ -58,6 +58,7 @@ type userDTO struct {
 	Name            string `json:"name"`
 	AvatarURL       string `json:"avatar_url,omitempty"`
 	PreferredLocale string `json:"preferred_locale"`
+	TelegramChatID  string `json:"telegram_chat_id,omitempty"`
 }
 
 func toUserDTO(u *domain.User) userDTO {
@@ -67,6 +68,7 @@ func toUserDTO(u *domain.User) userDTO {
 		Name:            u.Name,
 		AvatarURL:       u.AvatarURL,
 		PreferredLocale: u.PreferredLocale,
+		TelegramChatID:  u.TelegramChatID,
 	}
 }
 
@@ -185,7 +187,8 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateProfileRequest struct {
-	Name string `json:"name"`
+	Name           string  `json:"name"`
+	TelegramChatID *string `json:"telegram_chat_id,omitempty"`
 }
 
 func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
@@ -201,10 +204,14 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.uc.UpdateProfile(r.Context(), usecase.UpdateProfileInput{
+	input := usecase.UpdateProfileInput{
 		UserID: userID,
 		Name:   req.Name,
-	})
+	}
+	if req.TelegramChatID != nil {
+		input.TelegramChatID = req.TelegramChatID
+	}
+	user, err := h.uc.UpdateProfile(r.Context(), input)
 	if err != nil {
 		sharedErrors.InternalError(w, "failed to update profile")
 		return

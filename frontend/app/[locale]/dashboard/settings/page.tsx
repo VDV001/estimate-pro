@@ -6,7 +6,8 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Globe, User, Check, Camera, Mail, MessageCircle, BellRing } from "lucide-react";
+import { Bell, Globe, User, Check, Camera, Mail, BellRing } from "lucide-react";
+import { TelegramIcon } from "@/components/ui/icons/telegram";
 import {
   Card,
   CardContent,
@@ -156,6 +157,11 @@ export default function SettingsPage() {
 function NotificationPreferences() {
   const t = useTranslations();
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
+
+  const [telegramId, setTelegramId] = useState(user?.telegram_chat_id ?? "");
+  const [telegramSaved, setTelegramSaved] = useState(false);
 
   const { data } = useQuery({
     queryKey: ["notifications", "preferences"],
@@ -167,6 +173,15 @@ function NotificationPreferences() {
       setPreference(channel, enabled),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications", "preferences"] });
+    },
+  });
+
+  const telegramMutation = useMutation({
+    mutationFn: (chatId: string) => updateProfile({ telegram_chat_id: chatId }),
+    onSuccess: (updatedUser) => {
+      setUser(updatedUser);
+      setTelegramSaved(true);
+      setTimeout(() => setTelegramSaved(false), 2000);
     },
   });
 
@@ -189,7 +204,7 @@ function NotificationPreferences() {
     },
     {
       key: "telegram" as const,
-      icon: <MessageCircle className="h-4 w-4" />,
+      icon: <TelegramIcon className="h-4 w-4" />,
       label: t("settings.channelTelegram"),
       desc: t("settings.channelTelegramDesc"),
       disabled: false,
@@ -216,23 +231,46 @@ function NotificationPreferences() {
       </CardHeader>
       <CardContent className="space-y-4">
         {channels.map((ch) => (
-          <div key={ch.key} className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="text-muted-foreground">{ch.icon}</div>
-              <div>
-                <p className="text-sm font-medium">{ch.label}</p>
-                <p className="text-xs text-muted-foreground">{ch.desc}</p>
+          <div key={ch.key} className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="text-muted-foreground">{ch.icon}</div>
+                <div>
+                  <p className="text-sm font-medium">{ch.label}</p>
+                  <p className="text-xs text-muted-foreground">{ch.desc}</p>
+                </div>
               </div>
+              <Switch
+                checked={isEnabled(ch.key)}
+                onCheckedChange={(checked: boolean) => {
+                  if (!ch.disabled) {
+                    toggleMutation.mutate({ channel: ch.key, enabled: checked });
+                  }
+                }}
+                disabled={ch.disabled || toggleMutation.isPending}
+              />
             </div>
-            <Switch
-              checked={isEnabled(ch.key)}
-              onCheckedChange={(checked: boolean) => {
-                if (!ch.disabled) {
-                  toggleMutation.mutate({ channel: ch.key, enabled: checked });
-                }
-              }}
-              disabled={ch.disabled || toggleMutation.isPending}
-            />
+            {ch.key === "telegram" && isEnabled("telegram") && (
+              <div className="ml-7 flex items-center gap-2">
+                <Input
+                  placeholder={t("settings.telegramChatIdPlaceholder")}
+                  value={telegramId}
+                  onChange={(e) => setTelegramId(e.target.value)}
+                  className="h-8 text-sm max-w-xs"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => telegramMutation.mutate(telegramId.trim())}
+                  disabled={telegramMutation.isPending || telegramId.trim() === (user?.telegram_chat_id ?? "")}
+                >
+                  {t("common.save")}
+                </Button>
+                {telegramSaved && (
+                  <Check className="h-4 w-4 text-emerald-500" />
+                )}
+              </div>
+            )}
           </div>
         ))}
       </CardContent>

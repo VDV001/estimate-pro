@@ -260,7 +260,8 @@
     "channelTelegram": "Telegram",
     "channelInAppDesc": "Уведомления в колокольчике",
     "channelEmailDesc": "Отправка на вашу почту",
-    "channelTelegramDesc": "Сообщения в Telegram"
+    "channelTelegramDesc": "Сообщения в Telegram",
+    "telegramChatIdPlaceholder": "Ваш Telegram Chat ID"
   },
   "documents": {
     "title": "Документы",

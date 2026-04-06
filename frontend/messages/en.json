@@ -260,7 +260,8 @@
     "channelTelegram": "Telegram",
     "channelInAppDesc": "Notifications in the bell icon",
     "channelEmailDesc": "Send to your email",
-    "channelTelegramDesc": "Messages via Telegram"
+    "channelTelegramDesc": "Messages via Telegram",
+    "telegramChatIdPlaceholder": "Your Telegram Chat ID"
   },
   "documents": {
     "title": "Documents",

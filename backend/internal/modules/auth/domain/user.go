@@ -12,6 +12,7 @@ type User struct {
 	Name            string    `json:"name"`
 	AvatarURL       string    `json:"avatar_url,omitempty"`
 	PreferredLocale string    `json:"preferred_locale"`
+	TelegramChatID  string    `json:"telegram_chat_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at,omitzero"`
 	UpdatedAt       time.Time `json:"updated_at,omitzero"`
 }
