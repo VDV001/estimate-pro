@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { addMember, searchUsers, listColleagues, type UserSearchResult } from "@/features/projects/api";
+import { addMember, searchUsers, listColleagues, listRecentlyAdded, type UserSearchResult } from "@/features/projects/api";
 
 const ROLES = ["admin", "pm", "tech_lead", "developer", "observer"] as const;
 
@@ -56,14 +56,35 @@ export function AddMemberDialog({
     enabled: open,
   });
 
+  const { data: recentlyAdded } = useQuery({
+    queryKey: ["recently-added"],
+    queryFn: listRecentlyAdded,
+    enabled: open,
+  });
+
+  const defaultSuggestions = (() => {
+    const seen = new Set<string>();
+    const merged: UserSearchResult[] = [];
+    for (const list of [recentlyAdded ?? [], colleagues ?? []]) {
+      for (const u of list) {
+        if (!seen.has(u.id)) {
+          seen.add(u.id);
+          merged.push(u);
+        }
+      }
+    }
+    return merged;
+  })();
+
   const suggestions = debouncedQuery.length >= 2
     ? (searchResults ?? [])
-    : (colleagues ?? []);
+    : defaultSuggestions;
 
   const mutation = useMutation({
     mutationFn: () => addMember(projectId, { email, role }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["members", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["recently-added"] });
       setQuery("");
       setEmail("");
       setRole("");

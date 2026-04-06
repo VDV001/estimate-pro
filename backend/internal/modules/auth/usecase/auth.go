@@ -161,8 +161,10 @@ func (uc *AuthUsecase) GetCurrentUser(ctx context.Context, userID string) (*doma
 }
 
 type UpdateProfileInput struct {
-	UserID string
-	Name   string
+	UserID            string
+	Name              string
+	TelegramChatID    *string // nil = don't change, pointer to "" = clear
+	NotificationEmail *string // nil = don't change, pointer to "" = clear
 }
 
 func (uc *AuthUsecase) UpdateProfile(ctx context.Context, input UpdateProfileInput) (*domain.User, error) {
@@ -173,6 +175,12 @@ func (uc *AuthUsecase) UpdateProfile(ctx context.Context, input UpdateProfileInp
 
 	if input.Name != "" {
 		user.Name = input.Name
+	}
+	if input.TelegramChatID != nil {
+		user.TelegramChatID = *input.TelegramChatID
+	}
+	if input.NotificationEmail != nil {
+		user.NotificationEmail = *input.NotificationEmail
 	}
 	user.UpdatedAt = time.Now()
 
@@ -216,11 +224,27 @@ func (uc *AuthUsecase) GetAvatar(ctx context.Context, callerID, targetUserID str
 }
 
 func (uc *AuthUsecase) SearchUsers(ctx context.Context, query, callerID string, limit int) ([]*domain.UserSearchResult, error) {
-	return uc.userRepo.Search(ctx, query, callerID, limit)
+	results, err := uc.userRepo.Search(ctx, query, callerID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("auth.SearchUsers: %w", err)
+	}
+	return results, nil
 }
 
 func (uc *AuthUsecase) ListColleagues(ctx context.Context, userID string, limit int) ([]*domain.UserSearchResult, error) {
-	return uc.userRepo.ListColleagues(ctx, userID, limit)
+	results, err := uc.userRepo.ListColleagues(ctx, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("auth.ListColleagues: %w", err)
+	}
+	return results, nil
+}
+
+func (uc *AuthUsecase) ListRecentlyAdded(ctx context.Context, userID string, limit int) ([]*domain.UserSearchResult, error) {
+	results, err := uc.userRepo.ListRecentlyAdded(ctx, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("auth.ListRecentlyAdded: %w", err)
+	}
+	return results, nil
 }
 
 type OAuthLoginInput struct {

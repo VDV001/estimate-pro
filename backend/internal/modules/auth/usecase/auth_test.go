@@ -57,6 +57,10 @@ func (m *mockUserRepo) ListColleagues(_ context.Context, _ string, _ int) ([]*do
 	return nil, nil
 }
 
+func (m *mockUserRepo) ListRecentlyAdded(_ context.Context, _ string, _ int) ([]*domain.UserSearchResult, error) {
+	return nil, nil
+}
+
 // --- Mock WorkspaceRepository ---
 
 type mockWorkspaceCreator struct {

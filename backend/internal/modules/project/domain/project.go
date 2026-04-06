@@ -50,9 +50,11 @@ type Project struct {
 }
 
 type Member struct {
-	ProjectID string `json:"project_id"`
-	UserID    string `json:"user_id"`
-	Role      Role   `json:"role"`
+	ProjectID string    `json:"project_id"`
+	UserID    string    `json:"user_id"`
+	Role      Role      `json:"role"`
+	AddedBy   string    `json:"added_by,omitempty"`
+	AddedAt   time.Time `json:"added_at,omitzero"`
 }
 
 type MemberWithUser struct {

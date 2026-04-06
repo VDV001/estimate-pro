@@ -23,6 +23,7 @@ type UserRepository interface {
 	Update(ctx context.Context, user *User) error
 	Search(ctx context.Context, query string, excludeUserID string, limit int) ([]*UserSearchResult, error)
 	ListColleagues(ctx context.Context, userID string, limit int) ([]*UserSearchResult, error)
+	ListRecentlyAdded(ctx context.Context, addedByUserID string, limit int) ([]*UserSearchResult, error)
 }
 
 // WorkspaceCreator creates a personal workspace for a newly registered user.

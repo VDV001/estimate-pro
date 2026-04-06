@@ -260,7 +260,10 @@
     "channelTelegram": "Telegram",
     "channelInAppDesc": "Notifications in the bell icon",
     "channelEmailDesc": "Send to your email",
-    "channelTelegramDesc": "Messages via Telegram"
+    "channelTelegramDesc": "Messages via Telegram",
+    "telegramChatIdPlaceholder": "Your Telegram Chat ID",
+    "telegramHelp": "To find your Chat ID, open Telegram and message @userinfobot — it will reply with your numeric ID. Copy and paste it here.",
+    "notificationEmailPlaceholder": "Email for notifications"
   },
   "documents": {
     "title": "Documents",

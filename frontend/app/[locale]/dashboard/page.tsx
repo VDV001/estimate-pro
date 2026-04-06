@@ -170,30 +170,27 @@ export default function DashboardPage() {
         <h2 className="text-lg font-semibold mb-4">{t("dashboard.overview")}</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {(workspaces ?? []).map((ws: Workspace) => (
-              <div
+              <Link
                 key={ws.id}
-                className="rounded-2xl border border-foreground/10 bg-background p-6 transition-colors duration-200 hover:bg-muted"
+                href="/dashboard/projects"
+                className="rounded-2xl border border-foreground/10 bg-background p-6 cursor-pointer transition-colors duration-200 hover:bg-muted block"
               >
-                <Link href="/dashboard/projects">
-                  <div className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-muted/50 mb-4">
-                    <LayoutGrid className="h-5 w-5 text-foreground" />
-                  </div>
-                </Link>
+                <div className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-muted/50 mb-4">
+                  <LayoutGrid className="h-5 w-5 text-foreground" />
+                </div>
                 <InlineEdit
                   value={ws.name}
                   onSave={(name) => renameWorkspaceMutation.mutate({ id: ws.id, name })}
                   className="text-lg font-semibold mb-2"
                   inputClassName="text-lg font-semibold h-8"
                 />
-                <Link href="/dashboard/projects">
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2">
-                    <span className="inline-flex items-center gap-1">
-                      <FolderKanban className="h-3.5 w-3.5" />
-                      {t("dashboard.workspaceProjects", { count: projectCount })}
-                    </span>
-                  </div>
-                </Link>
-              </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2">
+                  <span className="inline-flex items-center gap-1">
+                    <FolderKanban className="h-3.5 w-3.5" />
+                    {t("dashboard.workspaceProjects", { count: projectCount })}
+                  </span>
+                </div>
+              </Link>
           ))}
 
           {/* Create workspace card */}

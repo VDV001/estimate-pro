@@ -6,7 +6,8 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Globe, User, Check, Camera, Mail, MessageCircle, BellRing } from "lucide-react";
+import { Bell, Globe, User, Check, Camera, Mail, BellRing, HelpCircle } from "lucide-react";
+import { TelegramIcon } from "@/components/ui/icons/telegram";
 import {
   Card,
   CardContent,
@@ -156,6 +157,14 @@ export default function SettingsPage() {
 function NotificationPreferences() {
   const t = useTranslations();
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
+
+  const [telegramId, setTelegramId] = useState(user?.telegram_chat_id ?? "");
+  const [notifEmail, setNotifEmail] = useState(user?.notification_email || user?.email || "");
+  const [telegramSaved, setTelegramSaved] = useState(false);
+  const [emailSaved, setEmailSaved] = useState(false);
+  const [showTelegramHelp, setShowTelegramHelp] = useState(false);
 
   const { data } = useQuery({
     queryKey: ["notifications", "preferences"],
@@ -167,6 +176,24 @@ function NotificationPreferences() {
       setPreference(channel, enabled),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications", "preferences"] });
+    },
+  });
+
+  const telegramMutation = useMutation({
+    mutationFn: (chatId: string) => updateProfile({ telegram_chat_id: chatId }),
+    onSuccess: (updatedUser) => {
+      setUser(updatedUser);
+      setTelegramSaved(true);
+      setTimeout(() => setTelegramSaved(false), 2000);
+    },
+  });
+
+  const emailMutation = useMutation({
+    mutationFn: (email: string) => updateProfile({ notification_email: email }),
+    onSuccess: (updatedUser) => {
+      setUser(updatedUser);
+      setEmailSaved(true);
+      setTimeout(() => setEmailSaved(false), 2000);
     },
   });
 
@@ -189,7 +216,7 @@ function NotificationPreferences() {
     },
     {
       key: "telegram" as const,
-      icon: <MessageCircle className="h-4 w-4" />,
+      icon: <TelegramIcon className="h-4 w-4" />,
       label: t("settings.channelTelegram"),
       desc: t("settings.channelTelegramDesc"),
       disabled: false,
@@ -216,23 +243,82 @@ function NotificationPreferences() {
       </CardHeader>
       <CardContent className="space-y-4">
         {channels.map((ch) => (
-          <div key={ch.key} className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="text-muted-foreground">{ch.icon}</div>
-              <div>
-                <p className="text-sm font-medium">{ch.label}</p>
-                <p className="text-xs text-muted-foreground">{ch.desc}</p>
+          <div key={ch.key} className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="text-muted-foreground">{ch.icon}</div>
+                <div>
+                  <p className="text-sm font-medium">{ch.label}</p>
+                  <p className="text-xs text-muted-foreground">{ch.desc}</p>
+                </div>
               </div>
+              <Switch
+                checked={isEnabled(ch.key)}
+                onCheckedChange={(checked: boolean) => {
+                  if (!ch.disabled) {
+                    toggleMutation.mutate({ channel: ch.key, enabled: checked });
+                  }
+                }}
+                disabled={ch.disabled || toggleMutation.isPending}
+              />
             </div>
-            <Switch
-              checked={isEnabled(ch.key)}
-              onCheckedChange={(checked: boolean) => {
-                if (!ch.disabled) {
-                  toggleMutation.mutate({ channel: ch.key, enabled: checked });
-                }
-              }}
-              disabled={ch.disabled || toggleMutation.isPending}
-            />
+            {ch.key === "email" && isEnabled("email") && (
+              <div className="ml-7 flex items-center gap-2">
+                <Input
+                  type="email"
+                  placeholder={t("settings.notificationEmailPlaceholder")}
+                  value={notifEmail}
+                  onChange={(e) => setNotifEmail(e.target.value)}
+                  className="h-8 text-sm max-w-xs"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => emailMutation.mutate(notifEmail.trim())}
+                  disabled={emailMutation.isPending || notifEmail.trim() === (user?.notification_email || user?.email || "")}
+                >
+                  {t("common.save")}
+                </Button>
+                {emailSaved && (
+                  <Check className="h-4 w-4 text-emerald-500" />
+                )}
+              </div>
+            )}
+            {ch.key === "telegram" && isEnabled("telegram") && (
+              <div className="ml-7 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder={t("settings.telegramChatIdPlaceholder")}
+                    value={telegramId}
+                    onChange={(e) => setTelegramId(e.target.value)}
+                    className="h-8 text-sm max-w-xs"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => telegramMutation.mutate(telegramId.trim())}
+                    disabled={telegramMutation.isPending || telegramId.trim() === (user?.telegram_chat_id ?? "")}
+                  >
+                    {t("common.save")}
+                  </Button>
+                  {telegramSaved && (
+                    <Check className="h-4 w-4 text-emerald-500" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowTelegramHelp((v) => !v)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </button>
+                </div>
+                {showTelegramHelp && (
+                  <p className="text-xs text-muted-foreground bg-muted rounded-md p-3">
+                    {t("settings.telegramHelp")}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </CardContent>

@@ -118,7 +118,7 @@ export default function ProjectDetailPage({
     <div>
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
-        <Link href="/dashboard">
+        <Link href="/dashboard/projects">
           <Button variant="outline" size="icon">
             <ArrowLeft className="h-4 w-4" />
             <span className="sr-only">{tCommon("back")}</span>

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/project/domain"
 )
@@ -49,6 +50,8 @@ func (uc *MemberUsecase) AddMember(ctx context.Context, input AddMemberInput) er
 		ProjectID: input.ProjectID,
 		UserID:    input.UserID,
 		Role:      input.Role,
+		AddedBy:   input.CallerID,
+		AddedAt:   time.Now(),
 	}
 	if err := uc.memberRepo.Add(ctx, member); err != nil {
 		return fmt.Errorf("member.AddMember: %w", err)
