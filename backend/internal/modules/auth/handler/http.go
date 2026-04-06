@@ -53,22 +53,24 @@ type fullAuthResponse struct {
 }
 
 type userDTO struct {
-	ID              string `json:"id"`
-	Email           string `json:"email"`
-	Name            string `json:"name"`
-	AvatarURL       string `json:"avatar_url,omitempty"`
-	PreferredLocale string `json:"preferred_locale"`
-	TelegramChatID  string `json:"telegram_chat_id,omitempty"`
+	ID                string `json:"id"`
+	Email             string `json:"email"`
+	Name              string `json:"name"`
+	AvatarURL         string `json:"avatar_url,omitempty"`
+	PreferredLocale   string `json:"preferred_locale"`
+	TelegramChatID    string `json:"telegram_chat_id,omitempty"`
+	NotificationEmail string `json:"notification_email,omitempty"`
 }
 
 func toUserDTO(u *domain.User) userDTO {
 	return userDTO{
-		ID:              u.ID,
-		Email:           u.Email,
-		Name:            u.Name,
-		AvatarURL:       u.AvatarURL,
-		PreferredLocale: u.PreferredLocale,
-		TelegramChatID:  u.TelegramChatID,
+		ID:                u.ID,
+		Email:             u.Email,
+		Name:              u.Name,
+		AvatarURL:         u.AvatarURL,
+		PreferredLocale:   u.PreferredLocale,
+		TelegramChatID:    u.TelegramChatID,
+		NotificationEmail: u.NotificationEmail,
 	}
 }
 
@@ -187,8 +189,9 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateProfileRequest struct {
-	Name           string  `json:"name"`
-	TelegramChatID *string `json:"telegram_chat_id,omitempty"`
+	Name              string  `json:"name"`
+	TelegramChatID    *string `json:"telegram_chat_id,omitempty"`
+	NotificationEmail *string `json:"notification_email,omitempty"`
 }
 
 func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
@@ -210,6 +213,9 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TelegramChatID != nil {
 		input.TelegramChatID = req.TelegramChatID
+	}
+	if req.NotificationEmail != nil {
+		input.NotificationEmail = req.NotificationEmail
 	}
 	user, err := h.uc.UpdateProfile(r.Context(), input)
 	if err != nil {

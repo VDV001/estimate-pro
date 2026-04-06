@@ -25,6 +25,7 @@ export interface User {
   avatar_url?: string;
   preferred_locale: string;
   telegram_chat_id?: string;
+  notification_email?: string;
 }
 
 export interface AuthResponse {
@@ -75,7 +76,7 @@ export async function getCurrentUser(): Promise<User> {
   return apiClient<User>("/api/v1/auth/me");
 }
 
-export async function updateProfile(data: { name?: string; telegram_chat_id?: string }): Promise<User> {
+export async function updateProfile(data: { name?: string; telegram_chat_id?: string; notification_email?: string }): Promise<User> {
   return apiClient<User>("/api/v1/auth/profile", {
     method: "PATCH",
     body: data,

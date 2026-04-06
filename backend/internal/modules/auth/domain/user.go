@@ -13,6 +13,7 @@ type User struct {
 	AvatarURL       string    `json:"avatar_url,omitempty"`
 	PreferredLocale string    `json:"preferred_locale"`
 	TelegramChatID  string    `json:"telegram_chat_id,omitempty"`
+	NotificationEmail string  `json:"notification_email,omitempty"`
 	CreatedAt       time.Time `json:"created_at,omitzero"`
 	UpdatedAt       time.Time `json:"updated_at,omitzero"`
 }

@@ -161,9 +161,10 @@ func (uc *AuthUsecase) GetCurrentUser(ctx context.Context, userID string) (*doma
 }
 
 type UpdateProfileInput struct {
-	UserID         string
-	Name           string
-	TelegramChatID *string // nil = don't change, pointer to "" = clear
+	UserID            string
+	Name              string
+	TelegramChatID    *string // nil = don't change, pointer to "" = clear
+	NotificationEmail *string // nil = don't change, pointer to "" = clear
 }
 
 func (uc *AuthUsecase) UpdateProfile(ctx context.Context, input UpdateProfileInput) (*domain.User, error) {
@@ -177,6 +178,9 @@ func (uc *AuthUsecase) UpdateProfile(ctx context.Context, input UpdateProfileInp
 	}
 	if input.TelegramChatID != nil {
 		user.TelegramChatID = *input.TelegramChatID
+	}
+	if input.NotificationEmail != nil {
+		user.NotificationEmail = *input.NotificationEmail
 	}
 	user.UpdatedAt = time.Now()
 

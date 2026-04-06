@@ -261,7 +261,9 @@
     "channelInAppDesc": "Уведомления в колокольчике",
     "channelEmailDesc": "Отправка на вашу почту",
     "channelTelegramDesc": "Сообщения в Telegram",
-    "telegramChatIdPlaceholder": "Ваш Telegram Chat ID"
+    "telegramChatIdPlaceholder": "Ваш Telegram Chat ID",
+    "telegramHelp": "Чтобы узнать ваш Chat ID, откройте Telegram и напишите боту @userinfobot — он ответит вашим числовым ID. Скопируйте его и вставьте сюда.",
+    "notificationEmailPlaceholder": "Email для уведомлений"
   },
   "documents": {
     "title": "Документы",
