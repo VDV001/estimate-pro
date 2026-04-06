@@ -59,6 +59,7 @@ export function EstimationForm({ projectId, onCreated }: EstimationFormProps) {
       createEstimation(projectId, { items }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["estimations", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["estimations-aggregated", projectId] });
       setRows([emptyRow()]);
       onCreated?.();
     },

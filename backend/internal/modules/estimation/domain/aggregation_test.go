@@ -3,6 +3,7 @@ package domain
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 func TestPERTEstimate(t *testing.T) {
@@ -152,6 +153,72 @@ func TestAggregate_Empty(t *testing.T) {
 	}
 	if result.TotalHours != 0 {
 		t.Errorf("expected 0 total hours, got %v", result.TotalHours)
+	}
+}
+
+func TestAggregate_MultipleEstimationsSameUser(t *testing.T) {
+	now := time.Now()
+	estimations := []*EstimationWithItems{
+		{
+			Estimation: &Estimation{ID: "est-1", SubmittedBy: "user-1", Status: StatusSubmitted, CreatedAt: now.Add(-2 * time.Hour)},
+			Items: []*EstimationItem{
+				{TaskName: "Task A", MinHours: 1, LikelyHours: 2, MaxHours: 3, SortOrder: 0},
+				{TaskName: "Task B", MinHours: 2, LikelyHours: 4, MaxHours: 6, SortOrder: 1},
+			},
+		},
+		{
+			Estimation: &Estimation{ID: "est-2", SubmittedBy: "user-1", Status: StatusSubmitted, CreatedAt: now.Add(-1 * time.Hour)},
+			Items: []*EstimationItem{
+				{TaskName: "Task C", MinHours: 3, LikelyHours: 5, MaxHours: 8, SortOrder: 0},
+				{TaskName: "Task D", MinHours: 1, LikelyHours: 3, MaxHours: 5, SortOrder: 1},
+			},
+		},
+		{
+			Estimation: &Estimation{ID: "est-3", SubmittedBy: "user-1", Status: StatusSubmitted, CreatedAt: now},
+			Items: []*EstimationItem{
+				{TaskName: "Task E", MinHours: 2, LikelyHours: 4, MaxHours: 7, SortOrder: 0},
+			},
+		},
+	}
+
+	result := Aggregate(estimations)
+
+	// All 5 tasks from 3 estimations by same user should appear
+	if len(result.Items) != 5 {
+		t.Fatalf("expected 5 items (all tasks from all estimations), got %d", len(result.Items))
+	}
+	if result.Items[0].EstimatorCount != 1 {
+		t.Errorf("estimator count = %d, want 1 (single user)", result.Items[0].EstimatorCount)
+	}
+}
+
+func TestAggregate_DedupSameTaskAcrossEstimations(t *testing.T) {
+	now := time.Now()
+	estimations := []*EstimationWithItems{
+		{
+			Estimation: &Estimation{ID: "old", SubmittedBy: "user-1", Status: StatusSubmitted, CreatedAt: now.Add(-1 * time.Hour)},
+			Items: []*EstimationItem{
+				{TaskName: "Task A", MinHours: 10, LikelyHours: 20, MaxHours: 30, SortOrder: 0},
+			},
+		},
+		{
+			Estimation: &Estimation{ID: "new", SubmittedBy: "user-1", Status: StatusSubmitted, CreatedAt: now},
+			Items: []*EstimationItem{
+				{TaskName: "Task A", MinHours: 1, LikelyHours: 2, MaxHours: 3, SortOrder: 0},
+			},
+		},
+	}
+
+	result := Aggregate(estimations)
+
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 item (deduped), got %d", len(result.Items))
+	}
+
+	// Should use the newer estimation's values
+	expectedPERT := PERTEstimate(1, 2, 3)
+	if math.Abs(result.Items[0].AvgPERTHours-expectedPERT) > 1e-9 {
+		t.Errorf("AvgPERTHours = %v, want %v (from newer estimation)", result.Items[0].AvgPERTHours, expectedPERT)
 	}
 }
 

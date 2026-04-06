@@ -58,6 +58,7 @@ export function EstimationList({ projectId }: EstimationListProps) {
     mutationFn: (estId: string) => submitEstimation(projectId, estId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["estimations", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["estimations-aggregated", projectId] });
     },
   });
 
@@ -65,6 +66,7 @@ export function EstimationList({ projectId }: EstimationListProps) {
     mutationFn: (estId: string) => deleteEstimation(projectId, estId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["estimations", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["estimations-aggregated", projectId] });
       setExpandedId(null);
     },
   });

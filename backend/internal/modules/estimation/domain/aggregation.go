@@ -3,7 +3,10 @@
 
 package domain
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // AggregatedItem represents a single task aggregated across multiple estimations.
 type AggregatedItem struct {
@@ -40,40 +43,53 @@ func Aggregate(estimations []*EstimationWithItems) *AggregatedResult {
 	taskMap := make(map[string]*accumulator)
 	var taskOrder []string
 
-	// Use only the latest submitted estimation per user
-	latestByUser := make(map[string]*EstimationWithItems)
+	// Collect all submitted estimations per user, sorted newest-first.
+	// For each user+task combination, use only the newest item (dedup by task name).
+	userEstimations := make(map[string][]*EstimationWithItems)
 	for _, est := range estimations {
 		if est.Estimation.Status != StatusSubmitted {
 			continue
 		}
-		existing, ok := latestByUser[est.Estimation.SubmittedBy]
-		if !ok || est.Estimation.CreatedAt.After(existing.Estimation.CreatedAt) {
-			latestByUser[est.Estimation.SubmittedBy] = est
-		}
+		userEstimations[est.Estimation.SubmittedBy] = append(
+			userEstimations[est.Estimation.SubmittedBy], est,
+		)
 	}
 
-	for _, est := range latestByUser {
-		for _, item := range est.Items {
-			acc, exists := taskMap[item.TaskName]
-			if !exists {
-				acc = &accumulator{
-					minOfMins:  math.MaxFloat64,
-					maxOfMaxes: -math.MaxFloat64,
-					users:      make(map[string]bool),
-					firstOrder: item.SortOrder,
+	for userID, ests := range userEstimations {
+		// Sort newest-first so the first occurrence of a task_name wins.
+		slices.SortFunc(ests, func(a, b *EstimationWithItems) int {
+			return b.Estimation.CreatedAt.Compare(a.Estimation.CreatedAt)
+		})
+
+		seen := make(map[string]bool)
+		for _, est := range ests {
+			for _, item := range est.Items {
+				if seen[item.TaskName] {
+					continue // already have a newer estimate for this task
 				}
-				taskMap[item.TaskName] = acc
-				taskOrder = append(taskOrder, item.TaskName)
-			}
-			pert := item.PERTHours()
-			acc.pertSum += pert
-			acc.count++
-			acc.users[est.Estimation.SubmittedBy] = true
-			if item.MinHours < acc.minOfMins {
-				acc.minOfMins = item.MinHours
-			}
-			if item.MaxHours > acc.maxOfMaxes {
-				acc.maxOfMaxes = item.MaxHours
+				seen[item.TaskName] = true
+
+				acc, exists := taskMap[item.TaskName]
+				if !exists {
+					acc = &accumulator{
+						minOfMins:  math.MaxFloat64,
+						maxOfMaxes: -math.MaxFloat64,
+						users:      make(map[string]bool),
+						firstOrder: item.SortOrder,
+					}
+					taskMap[item.TaskName] = acc
+					taskOrder = append(taskOrder, item.TaskName)
+				}
+				pert := item.PERTHours()
+				acc.pertSum += pert
+				acc.count++
+				acc.users[userID] = true
+				if item.MinHours < acc.minOfMins {
+					acc.minOfMins = item.MinHours
+				}
+				if item.MaxHours > acc.maxOfMaxes {
+					acc.maxOfMaxes = item.MaxHours
+				}
 			}
 		}
 	}
