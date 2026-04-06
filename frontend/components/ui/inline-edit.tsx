@@ -54,30 +54,41 @@ export function InlineEdit({
 
   if (isEditing) {
     return (
-      <Input
-        ref={inputRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-          if (e.key === "Escape") cancel();
-        }}
-        className={inputClassName}
-      />
+      <div
+        onClick={(e) => e.preventDefault()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <Input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") cancel();
+          }}
+          className={inputClassName}
+        />
+      </div>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => !disabled && setIsEditing(true)}
-      className={`group inline-flex items-center gap-1.5 text-left ${disabled ? "cursor-default" : "cursor-pointer"} ${className}`}
-    >
+    <span className={`group inline-flex items-center gap-1.5 ${className}`}>
       <span>{value}</span>
       {!disabled && (
-        <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsEditing(true);
+          }}
+          className="inline-flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+        </button>
       )}
-    </button>
+    </span>
   );
 }

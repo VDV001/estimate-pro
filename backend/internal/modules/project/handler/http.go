@@ -129,14 +129,18 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
-		sharedErrors.BadRequest(w, "name is required")
+	if req.Name == "" || len(req.Name) > 255 {
+		sharedErrors.BadRequest(w, "name is required and must be at most 255 characters")
 		return
 	}
 
 	ws, err := h.workspaceRepo.GetByID(r.Context(), wsID)
 	if err != nil {
-		sharedErrors.NotFound(w, "workspace not found")
+		if errors.Is(err, domain.ErrWorkspaceNotFound) {
+			sharedErrors.NotFound(w, "workspace not found")
+		} else {
+			sharedErrors.InternalError(w, "failed to get workspace")
+		}
 		return
 	}
 

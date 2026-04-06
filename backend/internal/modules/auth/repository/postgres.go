@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,7 +68,8 @@ func (r *PostgresUserRepository) Update(ctx context.Context, user *domain.User) 
 }
 
 func (r *PostgresUserRepository) Search(ctx context.Context, query string, excludeUserID string, limit int) ([]*domain.UserSearchResult, error) {
-	pattern := "%" + query + "%"
+	escaped := strings.NewReplacer("%", "\\%", "_", "\\_", "\\", "\\\\").Replace(query)
+	pattern := "%" + escaped + "%"
 	sql := `SELECT id, email, name, COALESCE(avatar_url, '') FROM users
 		WHERE id != $1 AND (email ILIKE $2 OR name ILIKE $2)
 		ORDER BY name LIMIT $3`
@@ -84,6 +86,9 @@ func (r *PostgresUserRepository) Search(ctx context.Context, query string, exclu
 			return nil, fmt.Errorf("auth.Repository.Search scan: %w", err)
 		}
 		results = append(results, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("auth.Repository.Search iteration: %w", err)
 	}
 	return results, nil
 }
@@ -108,6 +113,9 @@ func (r *PostgresUserRepository) ListColleagues(ctx context.Context, userID stri
 			return nil, fmt.Errorf("auth.Repository.ListColleagues scan: %w", err)
 		}
 		results = append(results, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("auth.Repository.ListColleagues iteration: %w", err)
 	}
 	return results, nil
 }

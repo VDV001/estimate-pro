@@ -216,11 +216,19 @@ func (uc *AuthUsecase) GetAvatar(ctx context.Context, callerID, targetUserID str
 }
 
 func (uc *AuthUsecase) SearchUsers(ctx context.Context, query, callerID string, limit int) ([]*domain.UserSearchResult, error) {
-	return uc.userRepo.Search(ctx, query, callerID, limit)
+	results, err := uc.userRepo.Search(ctx, query, callerID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("auth.SearchUsers: %w", err)
+	}
+	return results, nil
 }
 
 func (uc *AuthUsecase) ListColleagues(ctx context.Context, userID string, limit int) ([]*domain.UserSearchResult, error) {
-	return uc.userRepo.ListColleagues(ctx, userID, limit)
+	results, err := uc.userRepo.ListColleagues(ctx, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("auth.ListColleagues: %w", err)
+	}
+	return results, nil
 }
 
 type OAuthLoginInput struct {

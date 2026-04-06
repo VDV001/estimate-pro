@@ -40,6 +40,7 @@ export default function ProjectsPage() {
   const { data: projectsData, isLoading } = useQuery({
     queryKey: ["projects"],
     queryFn: () => listProjects(),
+    refetchOnMount: "always",
   });
 
   const projects = projectsData?.projects ?? [];
