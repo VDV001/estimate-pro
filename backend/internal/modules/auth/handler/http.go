@@ -39,6 +39,8 @@ func (h *Handler) Register(r chi.Router, jwtService *jwt.Service) {
 			r.Patch("/profile", h.UpdateProfile)
 			r.Post("/avatar", h.UploadAvatar)
 			r.Get("/avatar/{userId}", h.GetAvatar)
+			r.Get("/users/search", h.SearchUsers)
+			r.Get("/users/colleagues", h.ListColleagues)
 		})
 	})
 }
@@ -248,6 +250,50 @@ func (h *Handler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.WriteJSON(w, http.StatusOK, toUserDTO(user))
+}
+
+func (h *Handler) SearchUsers(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		sharedErrors.Unauthorized(w, "missing user context")
+		return
+	}
+
+	q := r.URL.Query().Get("q")
+	if len(q) < 2 {
+		sharedErrors.BadRequest(w, "query must be at least 2 characters")
+		return
+	}
+
+	results, err := h.uc.SearchUsers(r.Context(), q, userID, 10)
+	if err != nil {
+		sharedErrors.InternalError(w, "search failed")
+		return
+	}
+
+	if results == nil {
+		results = make([]*domain.UserSearchResult, 0)
+	}
+	response.WriteJSON(w, http.StatusOK, results)
+}
+
+func (h *Handler) ListColleagues(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		sharedErrors.Unauthorized(w, "missing user context")
+		return
+	}
+
+	results, err := h.uc.ListColleagues(r.Context(), userID, 20)
+	if err != nil {
+		sharedErrors.InternalError(w, "failed to list colleagues")
+		return
+	}
+
+	if results == nil {
+		results = make([]*domain.UserSearchResult, 0)
+	}
+	response.WriteJSON(w, http.StatusOK, results)
 }
 
 func (h *Handler) GetAvatar(w http.ResponseWriter, r *http.Request) {

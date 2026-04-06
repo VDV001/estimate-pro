@@ -215,6 +215,14 @@ func (uc *AuthUsecase) GetAvatar(ctx context.Context, callerID, targetUserID str
 	return uc.avatarStorage.Download(ctx, key)
 }
 
+func (uc *AuthUsecase) SearchUsers(ctx context.Context, query, callerID string, limit int) ([]*domain.UserSearchResult, error) {
+	return uc.userRepo.Search(ctx, query, callerID, limit)
+}
+
+func (uc *AuthUsecase) ListColleagues(ctx context.Context, userID string, limit int) ([]*domain.UserSearchResult, error) {
+	return uc.userRepo.ListColleagues(ctx, userID, limit)
+}
+
 type OAuthLoginInput struct {
 	Email     string
 	Name      string

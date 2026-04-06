@@ -3,9 +3,9 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslations } from "next-intl";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { addMember } from "@/features/projects/api";
+import { addMember, searchUsers, listColleagues, type UserSearchResult } from "@/features/projects/api";
 
 const ROLES = ["admin", "pm", "tech_lead", "developer", "observer"] as const;
 
@@ -36,24 +36,63 @@ export function AddMemberDialog({
   const tCommon = useTranslations("common");
   const queryClient = useQueryClient();
 
+  const [query, setQuery] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<string>("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const debouncedQuery = useDebounce(query, 300);
+
+  const { data: searchResults } = useQuery({
+    queryKey: ["user-search", debouncedQuery],
+    queryFn: () => searchUsers(debouncedQuery),
+    enabled: debouncedQuery.length >= 2,
+  });
+
+  const { data: colleagues } = useQuery({
+    queryKey: ["colleagues"],
+    queryFn: listColleagues,
+    enabled: open,
+  });
+
+  const suggestions = debouncedQuery.length >= 2
+    ? (searchResults ?? [])
+    : (colleagues ?? []);
 
   const mutation = useMutation({
     mutationFn: () => addMember(projectId, { email, role }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["members", projectId] });
+      setQuery("");
       setEmail("");
       setRole("");
       onOpenChange(false);
     },
   });
 
+  const selectUser = useCallback((user: UserSearchResult) => {
+    setEmail(user.email);
+    setQuery(`${user.name} (${user.email})`);
+    setShowDropdown(false);
+  }, []);
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!email.trim() || !role) return;
     mutation.mutate();
   };
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -63,16 +102,37 @@ export function AddMemberDialog({
           <DialogDescription>{t("inviteDesc")}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="member-email">{t("memberEmail")}</Label>
+          <div className="space-y-2 relative" ref={dropdownRef}>
+            <Label htmlFor="member-search">{t("memberEmail")}</Label>
             <Input
-              id="member-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              id="member-search"
+              type="text"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setEmail("");
+                setShowDropdown(true);
+              }}
+              onFocus={() => setShowDropdown(true)}
               placeholder={t("memberEmailPlaceholder")}
+              autoComplete="off"
               autoFocus
             />
+            {showDropdown && suggestions.length > 0 && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-md border bg-popover shadow-md">
+                {suggestions.map((user) => (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => selectUser(user)}
+                    className="flex flex-col w-full px-3 py-2 text-left hover:bg-muted transition-colors"
+                  >
+                    <span className="text-sm font-medium">{user.name}</span>
+                    <span className="text-xs text-muted-foreground">{user.email}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="member-role">{t("memberRole")}</Label>
@@ -116,4 +176,13 @@ export function AddMemberDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function useDebounce(value: string, delay: number): string {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
 }

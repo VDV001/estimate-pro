@@ -49,6 +49,14 @@ func (m *mockUserRepo) Update(ctx context.Context, user *domain.User) error {
 	return nil
 }
 
+func (m *mockUserRepo) Search(_ context.Context, _ string, _ string, _ int) ([]*domain.UserSearchResult, error) {
+	return nil, nil
+}
+
+func (m *mockUserRepo) ListColleagues(_ context.Context, _ string, _ int) ([]*domain.UserSearchResult, error) {
+	return nil, nil
+}
+
 // --- Mock WorkspaceRepository ---
 
 type mockWorkspaceCreator struct {

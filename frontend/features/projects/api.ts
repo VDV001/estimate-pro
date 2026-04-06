@@ -97,6 +97,20 @@ export async function updateProject(
   });
 }
 
+export interface UserSearchResult {
+  id: string;
+  email: string;
+  name: string;
+  avatar_url?: string;
+}
+
+export async function searchUsers(query: string) {
+  return apiClient<UserSearchResult[]>(`/api/v1/auth/users/search?q=${encodeURIComponent(query)}`);
+}
+
+export async function listColleagues() {
+  return apiClient<UserSearchResult[]>("/api/v1/auth/users/colleagues");
+}
 export async function updateWorkspace(
   id: string,
   data: { name: string }

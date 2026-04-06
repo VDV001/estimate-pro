@@ -65,3 +65,49 @@ func (r *PostgresUserRepository) Update(ctx context.Context, user *domain.User) 
 	}
 	return nil
 }
+
+func (r *PostgresUserRepository) Search(ctx context.Context, query string, excludeUserID string, limit int) ([]*domain.UserSearchResult, error) {
+	pattern := "%" + query + "%"
+	sql := `SELECT id, email, name, COALESCE(avatar_url, '') FROM users
+		WHERE id != $1 AND (email ILIKE $2 OR name ILIKE $2)
+		ORDER BY name LIMIT $3`
+	rows, err := r.pool.Query(ctx, sql, excludeUserID, pattern, limit)
+	if err != nil {
+		return nil, fmt.Errorf("auth.Repository.Search: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*domain.UserSearchResult
+	for rows.Next() {
+		u := &domain.UserSearchResult{}
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.AvatarURL); err != nil {
+			return nil, fmt.Errorf("auth.Repository.Search scan: %w", err)
+		}
+		results = append(results, u)
+	}
+	return results, nil
+}
+
+func (r *PostgresUserRepository) ListColleagues(ctx context.Context, userID string, limit int) ([]*domain.UserSearchResult, error) {
+	sql := `SELECT DISTINCT u.id, u.email, u.name, COALESCE(u.avatar_url, '')
+		FROM users u
+		INNER JOIN project_members pm1 ON u.id = pm1.user_id
+		INNER JOIN project_members pm2 ON pm1.project_id = pm2.project_id
+		WHERE pm2.user_id = $1 AND u.id != $1
+		ORDER BY u.name LIMIT $2`
+	rows, err := r.pool.Query(ctx, sql, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("auth.Repository.ListColleagues: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*domain.UserSearchResult
+	for rows.Next() {
+		u := &domain.UserSearchResult{}
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.AvatarURL); err != nil {
+			return nil, fmt.Errorf("auth.Repository.ListColleagues scan: %w", err)
+		}
+		results = append(results, u)
+	}
+	return results, nil
+}

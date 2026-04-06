@@ -8,11 +8,21 @@ import (
 	"time"
 )
 
+// UserSearchResult is a safe projection of User without sensitive fields.
+type UserSearchResult struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+}
+
 type UserRepository interface {
 	Create(ctx context.Context, user *User) error
 	GetByID(ctx context.Context, id string) (*User, error)
 	GetByEmail(ctx context.Context, email string) (*User, error)
 	Update(ctx context.Context, user *User) error
+	Search(ctx context.Context, query string, excludeUserID string, limit int) ([]*UserSearchResult, error)
+	ListColleagues(ctx context.Context, userID string, limit int) ([]*UserSearchResult, error)
 }
 
 // WorkspaceCreator creates a personal workspace for a newly registered user.
