@@ -6,11 +6,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,6 +36,7 @@ import (
 	projectRepo "github.com/VDV001/estimate-pro/backend/internal/modules/project/repository"
 	projectUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/project/usecase"
 
+	documentDomain "github.com/VDV001/estimate-pro/backend/internal/modules/document/domain"
 	documentHandler "github.com/VDV001/estimate-pro/backend/internal/modules/document/handler"
 	documentRepo "github.com/VDV001/estimate-pro/backend/internal/modules/document/repository"
 	documentUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/document/usecase"
@@ -49,6 +52,13 @@ import (
 	notifyUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/notify/usecase"
 
 	wsModule "github.com/VDV001/estimate-pro/backend/internal/modules/ws"
+
+	botDomain "github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
+	botHandler "github.com/VDV001/estimate-pro/backend/internal/modules/bot/handler"
+	botLLM "github.com/VDV001/estimate-pro/backend/internal/modules/bot/llm"
+	botRepo "github.com/VDV001/estimate-pro/backend/internal/modules/bot/repository"
+	botTelegram "github.com/VDV001/estimate-pro/backend/internal/modules/bot/telegram"
+	botUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/bot/usecase"
 
 	"github.com/VDV001/estimate-pro/backend/internal/infra/composio"
 )
@@ -117,6 +127,16 @@ func main() {
 	prefRepository := notifyRepo.NewPostgresPreferenceRepository(pool)
 	deliveryLogRepo := notifyRepo.NewPostgresDeliveryLogRepository(pool)
 
+	// Bot module repositories
+	botSessionRepo := botRepo.NewPostgresSessionRepository(pool)
+	botLinkRepo := botRepo.NewPostgresUserLinkRepository(pool)
+	botLLMConfigRepo := botRepo.NewPostgresLLMConfigRepository(pool)
+	botMemoryRepo := botRepo.NewPostgresMemoryRepository(pool)
+	botPrefsRepo := botRepo.NewPostgresUserPrefsRepository(pool)
+
+	// Bot Telegram client
+	botTG := botTelegram.NewClient(cfg.TelegramBot.Token)
+
 	// Composio client + external senders
 	composioClient := composio.NewClient(cfg.Composio.APIKey)
 	emailLookup := notifyRepo.NewEmailLookup(pool)
@@ -183,6 +203,29 @@ func main() {
 	// Notification handler
 	notifyH := notifyHandler.New(notifyUC)
 
+	// Bot module
+	botUC := botUsecase.New(
+		botSessionRepo,
+		botLinkRepo,
+		botLLMConfigRepo,
+		botMemoryRepo,
+		botPrefsRepo,
+		botTG,
+		botLLM.NewParser,
+		botUsecase.EnvLLMConfig{
+			Provider: cfg.LLM.Provider,
+			APIKey:   cfg.LLM.APIKey,
+			Model:    cfg.LLM.Model,
+			BaseURL:  cfg.LLM.BaseURL,
+		},
+		cfg.TelegramBot.BotUsername,
+		&botProjectAdapter{projectUC: projectUC},
+		&botMemberAdapter{memberUC: memberUC},
+		&botEstimationAdapter{estimationUC: estimationUC},
+		&botDocumentAdapter{documentUC: documentUC},
+	)
+	botH := botHandler.New(botUC, cfg.TelegramBot.WebhookSecret)
+
 	// Module routes
 	authH.Register(r, jwtService)
 	oauthH.Register(r)
@@ -191,6 +234,7 @@ func main() {
 	documentH.Register(r, jwtService)
 	estimationH.Register(r, jwtService)
 	notifyH.Register(r, jwtService)
+	botH.Register(r)
 
 	// Server
 	srv := &http.Server{
@@ -273,4 +317,130 @@ func (a *avatarStorageAdapter) Download(ctx context.Context, key string) ([]byte
 	// Detect content type from data
 	ct := http.DetectContentType(data)
 	return data, ct, nil
+}
+
+// botProjectAdapter implements botDomain.ProjectManager using existing project usecases.
+type botProjectAdapter struct {
+	projectUC *projectUsecase.ProjectUsecase
+}
+
+func (a *botProjectAdapter) Create(ctx context.Context, workspaceID, name, description, userID string) (string, error) {
+	project, err := a.projectUC.Create(ctx, projectUsecase.CreateProjectInput{
+		WorkspaceID: workspaceID,
+		Name:        name,
+		Description: description,
+		UserID:      userID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return project.ID, nil
+}
+
+func (a *botProjectAdapter) Update(ctx context.Context, projectID, name, description, userID string) error {
+	_, err := a.projectUC.Update(ctx, projectUsecase.UpdateProjectInput{
+		ID:          projectID,
+		Name:        name,
+		Description: description,
+		UserID:      userID,
+	})
+	return err
+}
+
+func (a *botProjectAdapter) ListByUser(ctx context.Context, userID string, limit, offset int) ([]botDomain.ProjectSummary, int, error) {
+	result, err := a.projectUC.ListByUser(ctx, projectUsecase.ListByUserInput{
+		UserID: userID,
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	summaries := make([]botDomain.ProjectSummary, len(result.Projects))
+	for i, p := range result.Projects {
+		summaries[i] = botDomain.ProjectSummary{
+			ID:     p.ID,
+			Name:   p.Name,
+			Status: string(p.Status),
+		}
+	}
+	return summaries, result.Total, nil
+}
+
+// botMemberAdapter implements botDomain.MemberManager using existing member usecases.
+type botMemberAdapter struct {
+	memberUC *projectUsecase.MemberUsecase
+}
+
+func (a *botMemberAdapter) AddByEmail(ctx context.Context, projectID, email, role, callerID string) error {
+	return a.memberUC.AddMemberByEmail(ctx, projectUsecase.AddMemberByEmailInput{
+		ProjectID: projectID,
+		Email:     email,
+		Role:      projectDomain.Role(role),
+		CallerID:  callerID,
+	})
+}
+
+func (a *botMemberAdapter) Remove(ctx context.Context, projectID, userID, callerID string) error {
+	return a.memberUC.RemoveMember(ctx, projectUsecase.RemoveMemberInput{
+		ProjectID: projectID,
+		UserID:    userID,
+		CallerID:  callerID,
+	})
+}
+
+func (a *botMemberAdapter) List(ctx context.Context, projectID string) ([]botDomain.MemberSummary, error) {
+	members, err := a.memberUC.ListMembersWithUsers(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	summaries := make([]botDomain.MemberSummary, len(members))
+	for i, m := range members {
+		summaries[i] = botDomain.MemberSummary{
+			UserID:    m.UserID,
+			UserName:  m.UserName,
+			UserEmail: m.UserEmail,
+			Role:      string(m.Role),
+		}
+	}
+	return summaries, nil
+}
+
+// botEstimationAdapter implements botDomain.EstimationManager using existing estimation usecases.
+type botEstimationAdapter struct {
+	estimationUC *estimationUsecase.EstimationUsecase
+}
+
+func (a *botEstimationAdapter) GetAggregated(ctx context.Context, projectID string) (string, error) {
+	result, err := a.estimationUC.GetAggregated(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	if len(result.Items) == 0 {
+		return "No estimations yet", nil
+	}
+	var sb strings.Builder
+	for _, item := range result.Items {
+		sb.WriteString(fmt.Sprintf("• %s: %.1f ч\n", item.TaskName, item.AvgPERTHours))
+	}
+	sb.WriteString(fmt.Sprintf("\nИтого: %.1f ч", result.TotalHours))
+	return sb.String(), nil
+}
+
+// botDocumentAdapter implements botDomain.DocumentManager using existing document usecases.
+type botDocumentAdapter struct {
+	documentUC *documentUsecase.DocumentUsecase
+}
+
+func (a *botDocumentAdapter) Upload(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) error {
+	_, _, err := a.documentUC.Upload(ctx, documentUsecase.UploadInput{
+		ProjectID: projectID,
+		Title:     title,
+		FileName:  fileName,
+		FileSize:  fileSize,
+		FileType:  documentDomain.FileType(fileType),
+		Content:   content,
+		UserID:    userID,
+	})
+	return err
 }
