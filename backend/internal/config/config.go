@@ -14,6 +14,8 @@ type Config struct {
 	JWT         JWTConfig
 	Composio    ComposioConfig
 	OAuth       OAuthConfig
+	TelegramBot TelegramBotConfig
+	LLM         LLMDefaultConfig
 }
 
 type S3Config struct {
@@ -44,6 +46,19 @@ type OAuthConfig struct {
 	RedirectBaseURL    string
 }
 
+type TelegramBotConfig struct {
+	Token         string
+	WebhookSecret string
+	BotUsername   string
+}
+
+type LLMDefaultConfig struct {
+	Provider string
+	APIKey   string
+	Model    string
+	BaseURL  string
+}
+
 func Load() Config {
 	return Config{
 		ServerPort:  cmp.Or(os.Getenv("SERVER_PORT"), "8080"),
@@ -72,6 +87,17 @@ func Load() Config {
 			GitHubClientID:     os.Getenv("GITHUB_CLIENT_ID"),
 			GitHubClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
 			RedirectBaseURL:    cmp.Or(os.Getenv("OAUTH_REDIRECT_BASE_URL"), "http://localhost:3000"),
+		},
+		TelegramBot: TelegramBotConfig{
+			Token:         os.Getenv("TELEGRAM_BOT_TOKEN"),
+			WebhookSecret: os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
+			BotUsername:   os.Getenv("TELEGRAM_BOT_USERNAME"),
+		},
+		LLM: LLMDefaultConfig{
+			Provider: cmp.Or(os.Getenv("LLM_PROVIDER"), "claude"),
+			APIKey:   os.Getenv("LLM_API_KEY"),
+			Model:    cmp.Or(os.Getenv("LLM_MODEL"), "claude-sonnet-4-20250514"),
+			BaseURL:  os.Getenv("LLM_BASE_URL"),
 		},
 	}
 }
