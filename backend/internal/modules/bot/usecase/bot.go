@@ -4,6 +4,7 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -113,6 +114,11 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 		return nil //nolint:nilerr // unlinked user is not an error
 	}
 
+	// Handle file attachments (PDF, DOCX, XLSX, MD, TXT, CSV).
+	if msg.Document != nil {
+		return uc.handleFileUpload(ctx, msg, chatID, link.UserID)
+	}
+
 	// Check for active session — continue the flow.
 	session, err := uc.sessions.GetActive(ctx, chatID)
 	if err == nil {
@@ -192,6 +198,139 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 	return nil
 }
 
+// supportedFileTypes maps MIME types to EstimatePro file type strings.
+var supportedFileTypes = map[string]string{
+	"application/pdf":                                                          "pdf",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":  "docx",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":        "xlsx",
+	"text/markdown":    "md",
+	"text/plain":       "txt",
+	"text/csv":         "csv",
+	"application/csv":  "csv",
+}
+
+// fileTypeFromName guesses file type from extension when MIME is missing.
+func fileTypeFromName(name string) string {
+	ext := strings.ToLower(name)
+	switch {
+	case strings.HasSuffix(ext, ".pdf"):
+		return "pdf"
+	case strings.HasSuffix(ext, ".docx"):
+		return "docx"
+	case strings.HasSuffix(ext, ".xlsx"):
+		return "xlsx"
+	case strings.HasSuffix(ext, ".md"):
+		return "md"
+	case strings.HasSuffix(ext, ".txt"):
+		return "txt"
+	case strings.HasSuffix(ext, ".csv"):
+		return "csv"
+	default:
+		return ""
+	}
+}
+
+// handleFileUpload downloads a file from Telegram and starts a session to upload it to a project.
+func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Message, chatID, userID string) error {
+	doc := msg.Document
+	msgID := msg.MessageID
+
+	// Determine file type.
+	fileType := supportedFileTypes[doc.MimeType]
+	if fileType == "" {
+		fileType = fileTypeFromName(doc.FileName)
+	}
+	if fileType == "" {
+		_ = uc.telegram.SetReaction(ctx, chatID, msgID, "🤔")
+		_ = uc.telegram.SendMessage(ctx, chatID, "Этот формат я пока не поддерживаю. Скинь PDF, DOCX, XLSX, MD, TXT или CSV!")
+		return nil
+	}
+
+	_ = uc.telegram.SetReaction(ctx, chatID, msgID, "👀")
+
+	// Check if there's an active session with project context.
+	session, err := uc.sessions.GetActive(ctx, chatID)
+	if err == nil {
+		state, _ := uc.sessions.GetState(session)
+		if projectID := state["project_id"]; projectID != "" {
+			return uc.uploadFile(ctx, chatID, userID, projectID, doc, fileType)
+		}
+	}
+
+	// No project context — ask which project to upload to.
+	projects, _, err := uc.executor.projects.ListByUser(ctx, userID, 20, 0)
+	if err != nil || len(projects) == 0 {
+		_ = uc.telegram.SendMessage(ctx, chatID, "У тебя пока нет проектов. Сначала создай проект!")
+		return nil
+	}
+
+	// Save file info in session, show project selection.
+	state := map[string]string{
+		"file_id":   doc.FileID,
+		"file_name": doc.FileName,
+		"file_type": fileType,
+		"file_size": strconv.FormatInt(doc.FileSize, 10),
+	}
+	_, err = uc.sessions.Create(ctx, chatID, userID, domain.IntentUploadDocument, state)
+	if err != nil {
+		slog.ErrorContext(ctx, "handleFileUpload: session create failed", slog.String("error", err.Error()))
+	}
+
+	// Build project selection keyboard.
+	var keyboard [][]domain.InlineKeyboardButton
+	for _, p := range projects {
+		keyboard = append(keyboard, []domain.InlineKeyboardButton{
+			{Text: p.Name, CallbackData: "sel_proj:" + p.ID},
+		})
+	}
+	keyboard = append(keyboard, []domain.InlineKeyboardButton{
+		{Text: "Отмена", CallbackData: "cancel:"},
+	})
+
+	_ = uc.telegram.SendInlineKeyboard(ctx, chatID, fmt.Sprintf("Файл *%s* получен! В какой проект загрузить?", doc.FileName), keyboard)
+	return nil
+}
+
+// uploadFile downloads the file from Telegram and uploads it to the project.
+func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID string, doc *telegram.Document, fileType string) error {
+	// Get download URL.
+	fileURL, err := uc.telegram.GetFileURL(ctx, doc.FileID)
+	if err != nil {
+		slog.ErrorContext(ctx, "uploadFile: GetFileURL failed", slog.String("error", err.Error()))
+		_ = uc.telegram.SendMessage(ctx, chatID, llm.LLMError.Pick())
+		return nil
+	}
+
+	// Download file content.
+	data, err := uc.telegram.DownloadFile(ctx, fileURL)
+	if err != nil {
+		slog.ErrorContext(ctx, "uploadFile: DownloadFile failed", slog.String("error", err.Error()))
+		_ = uc.telegram.SendMessage(ctx, chatID, llm.ExecuteError.Pick())
+		return nil
+	}
+
+	// Upload to EstimatePro.
+	title := doc.FileName
+	if idx := strings.LastIndex(title, "."); idx > 0 {
+		title = title[:idx] // strip extension for title
+	}
+
+	reader := bytes.NewReader(data)
+	err = uc.executor.documents.Upload(ctx, projectID, title, doc.FileName, doc.FileSize, fileType, reader, userID)
+	if err != nil {
+		slog.ErrorContext(ctx, "uploadFile: Upload failed", slog.String("error", err.Error()))
+		_ = uc.telegram.SendMessage(ctx, chatID, llm.ExecuteError.Pick())
+		return nil
+	}
+
+	_ = uc.telegram.SendMarkdown(ctx, chatID, fmt.Sprintf("Файл *%s* загружен в проект! 📎", doc.FileName))
+
+	// Save to memory.
+	go uc.saveMemory(ctx, userID, chatID, "Загрузил файл: "+doc.FileName, "Файл загружен", string(domain.IntentUploadDocument))
+
+	return nil
+}
+
 // saveMemory stores user message and bot response in conversation history.
 func (uc *BotUsecase) saveMemory(ctx context.Context, userID, chatID, userMsg, botResponse, intent string) {
 	now := time.Now()
@@ -263,6 +402,20 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		if sErr != nil {
 			_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 			return nil
+		}
+
+		// Handle file upload project selection.
+		if session.Intent == domain.IntentUploadDocument && action == "sel_proj" {
+			state, _ := uc.sessions.GetState(session)
+			fileSize, _ := strconv.ParseInt(state["file_size"], 10, 64)
+			doc := &telegram.Document{
+				FileID:   state["file_id"],
+				FileName: state["file_name"],
+				FileSize: fileSize,
+			}
+			_ = uc.sessions.Complete(ctx, session.ID)
+			_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "Загружаю...")
+			return uc.uploadFile(ctx, chatID, link.UserID, payload, doc, state["file_type"])
 		}
 
 		selKey := strings.TrimPrefix(action, "sel_")
