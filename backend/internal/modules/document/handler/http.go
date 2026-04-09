@@ -44,9 +44,12 @@ func (h *Handler) emit(eventType, projectID, userID string) {
 	}
 }
 
-func (h *Handler) Register(r chi.Router, jwtService *jwt.Service) {
+func (h *Handler) Register(r chi.Router, jwtService *jwt.Service, membershipMW ...func(http.Handler) http.Handler) {
 	r.Route("/api/v1/projects/{projectId}/documents", func(r chi.Router) {
 		r.Use(middleware.Auth(jwtService))
+		if len(membershipMW) > 0 {
+			r.Use(membershipMW[0])
+		}
 
 		r.Get("/", h.ListDocuments)
 		r.Post("/", h.UploadDocument)

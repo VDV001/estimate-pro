@@ -42,6 +42,10 @@ func Conflict(w http.ResponseWriter, message string) {
 	writeJSON(w, http.StatusConflict, "CONFLICT", message)
 }
 
+func TooManyRequests(w http.ResponseWriter, message string) {
+	writeJSON(w, http.StatusTooManyRequests, "TOO_MANY_REQUESTS", message)
+}
+
 func InternalError(w http.ResponseWriter, message string) {
 	writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", message)
 }

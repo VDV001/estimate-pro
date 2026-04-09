@@ -3,19 +3,21 @@ package config
 import (
 	"cmp"
 	"os"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	ServerPort  string
-	DatabaseURL string
-	RedisURL    string
-	S3          S3Config
-	JWT         JWTConfig
-	Composio    ComposioConfig
-	OAuth       OAuthConfig
-	TelegramBot TelegramBotConfig
-	LLM         LLMDefaultConfig
+	ServerPort     string
+	DatabaseURL    string
+	RedisURL       string
+	AllowedOrigins []string
+	S3             S3Config
+	JWT            JWTConfig
+	Composio       ComposioConfig
+	OAuth          OAuthConfig
+	TelegramBot    TelegramBotConfig
+	LLM            LLMDefaultConfig
 }
 
 type S3Config struct {
@@ -61,9 +63,10 @@ type LLMDefaultConfig struct {
 
 func Load() Config {
 	return Config{
-		ServerPort:  cmp.Or(os.Getenv("SERVER_PORT"), "8080"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		RedisURL:    cmp.Or(os.Getenv("REDIS_URL"), "redis://localhost:6379"),
+		ServerPort:     cmp.Or(os.Getenv("SERVER_PORT"), "8080"),
+		DatabaseURL:    os.Getenv("DATABASE_URL"),
+		RedisURL:       cmp.Or(os.Getenv("REDIS_URL"), "redis://localhost:6379"),
+		AllowedOrigins: parseOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		S3: S3Config{
 			Endpoint:  cmp.Or(os.Getenv("S3_ENDPOINT"), "localhost:9000"),
 			AccessKey: cmp.Or(os.Getenv("S3_ACCESS_KEY"), "minioadmin"),
@@ -100,6 +103,20 @@ func Load() Config {
 			BaseURL:  os.Getenv("LLM_BASE_URL"),
 		},
 	}
+}
+
+func parseOrigins(s string) []string {
+	if s == "" {
+		return []string{"http://localhost:3000"}
+	}
+	var origins []string
+	for _, o := range strings.Split(s, ",") {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			origins = append(origins, o)
+		}
+	}
+	return origins
 }
 
 func parseDuration(s string, fallback time.Duration) time.Duration {

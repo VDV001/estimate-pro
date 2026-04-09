@@ -31,7 +31,7 @@ func New(uc *usecase.ProjectUsecase, memberUC *usecase.MemberUsecase, workspaceR
 	return &Handler{uc: uc, memberUC: memberUC, workspaceRepo: workspaceRepo}
 }
 
-func (h *Handler) Register(r chi.Router, jwtService *jwt.Service) {
+func (h *Handler) Register(r chi.Router, jwtService *jwt.Service, membershipMW ...func(http.Handler) http.Handler) {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.Auth(jwtService))
 
@@ -45,6 +45,9 @@ func (h *Handler) Register(r chi.Router, jwtService *jwt.Service) {
 			r.Get("/", h.ListProjects)
 			r.Post("/", h.CreateProject)
 			r.Route("/{id}", func(r chi.Router) {
+				if len(membershipMW) > 0 {
+					r.Use(membershipMW[0])
+				}
 				r.Get("/", h.GetProject)
 				r.Patch("/", h.UpdateProject)
 				r.Delete("/", h.DeleteProject)

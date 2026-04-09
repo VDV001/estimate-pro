@@ -50,9 +50,12 @@ func (h *Handler) emit(eventType, projectID, userID string) {
 	}
 }
 
-func (h *Handler) Register(r chi.Router, jwtService *jwt.Service) {
+func (h *Handler) Register(r chi.Router, jwtService *jwt.Service, membershipMW ...func(http.Handler) http.Handler) {
 	r.Route("/api/v1/projects/{projectId}/estimations", func(r chi.Router) {
 		r.Use(middleware.Auth(jwtService))
+		if len(membershipMW) > 0 {
+			r.Use(membershipMW[0])
+		}
 
 		r.Post("/", h.CreateEstimation)
 		r.Get("/", h.ListEstimations)

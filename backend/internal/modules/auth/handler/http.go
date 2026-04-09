@@ -27,11 +27,16 @@ func New(uc *usecase.AuthUsecase) *Handler {
 	return &Handler{uc: uc}
 }
 
-func (h *Handler) Register(r chi.Router, jwtService *jwt.Service) {
+func (h *Handler) Register(r chi.Router, jwtService *jwt.Service, rateLimitMW ...func(http.Handler) http.Handler) {
 	r.Route("/api/v1/auth", func(r chi.Router) {
-		r.Post("/login", h.Login)
-		r.Post("/register", h.RegisterUser)
-		r.Post("/refresh", h.Refresh)
+		r.Group(func(r chi.Router) {
+			if len(rateLimitMW) > 0 {
+				r.Use(rateLimitMW[0])
+			}
+			r.Post("/login", h.Login)
+			r.Post("/register", h.RegisterUser)
+			r.Post("/refresh", h.Refresh)
+		})
 		r.Post("/logout", h.Logout)
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Auth(jwtService))
