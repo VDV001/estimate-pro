@@ -233,7 +233,11 @@ func TestUpdate_Success(t *testing.T) {
 		},
 	}
 	workspaceRepo := &mockWorkspaceRepo{workspaces: make(map[string]*domain.Workspace)}
-	memberRepo := &mockMemberRepo{}
+	memberRepo := &mockMemberRepo{
+		members: []*domain.Member{
+			{ProjectID: "p-1", UserID: "user-1", Role: domain.RoleAdmin},
+		},
+	}
 	uc := usecase.New(projectRepo, workspaceRepo, memberRepo)
 
 	updated, err := uc.Update(t.Context(), usecase.UpdateProjectInput{
@@ -265,7 +269,11 @@ func TestArchive_Success(t *testing.T) {
 		},
 	}
 	workspaceRepo := &mockWorkspaceRepo{workspaces: make(map[string]*domain.Workspace)}
-	memberRepo := &mockMemberRepo{}
+	memberRepo := &mockMemberRepo{
+		members: []*domain.Member{
+			{ProjectID: "p-1", UserID: "user-1", Role: domain.RoleAdmin},
+		},
+	}
 	uc := usecase.New(projectRepo, workspaceRepo, memberRepo)
 
 	project, err := uc.Archive(t.Context(), "p-1", "user-1")
@@ -289,7 +297,11 @@ func TestRestore_Success(t *testing.T) {
 		},
 	}
 	workspaceRepo := &mockWorkspaceRepo{workspaces: make(map[string]*domain.Workspace)}
-	memberRepo := &mockMemberRepo{}
+	memberRepo := &mockMemberRepo{
+		members: []*domain.Member{
+			{ProjectID: "p-1", UserID: "user-1", Role: domain.RoleAdmin},
+		},
+	}
 	uc := usecase.New(projectRepo, workspaceRepo, memberRepo)
 
 	project, err := uc.Restore(t.Context(), "p-1", "user-1")

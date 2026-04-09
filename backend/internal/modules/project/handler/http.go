@@ -185,6 +185,11 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Name) > 255 {
+		sharedErrors.BadRequest(w, "name too long (max 255)")
+		return
+	}
+
 	project, err := h.uc.Create(r.Context(), usecase.CreateProjectInput{
 		WorkspaceID: req.WorkspaceID,
 		Name:        req.Name,

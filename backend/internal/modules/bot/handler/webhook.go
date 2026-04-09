@@ -5,6 +5,7 @@ package handler
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -44,7 +45,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Validate webhook secret token.
-	if r.Header.Get("X-Telegram-Bot-Api-Secret-Token") != h.webhookSecret {
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Telegram-Bot-Api-Secret-Token")), []byte(h.webhookSecret)) != 1 {
 		slog.WarnContext(ctx, "Handler.HandleWebhook: invalid webhook secret")
 		writeOK(w)
 		return

@@ -92,6 +92,9 @@ func (r *PostgresEstimationRepository) ListByProject(ctx context.Context, projec
 		}
 		estimations = append(estimations, e)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("estimation.Repository.ListByProject iteration: %w", err)
+	}
 	return estimations, nil
 }
 
@@ -172,6 +175,9 @@ func (r *PostgresItemRepository) ListByEstimation(ctx context.Context, estimatio
 			return nil, fmt.Errorf("estimation.ItemRepository.ListByEstimation scan: %w", err)
 		}
 		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("estimation.ItemRepository.ListByEstimation iteration: %w", err)
 	}
 	return items, nil
 }

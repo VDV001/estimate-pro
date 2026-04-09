@@ -62,6 +62,9 @@ func (r *PostgresDocumentRepository) ListByProject(ctx context.Context, projectI
 		}
 		docs = append(docs, d)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("document.Repository.ListByProject iteration: %w", err)
+	}
 	return docs, nil
 }
 
@@ -128,6 +131,9 @@ func (r *PostgresVersionRepository) ListByDocument(ctx context.Context, document
 			return nil, fmt.Errorf("version.Repository.ListByDocument scan: %w", err)
 		}
 		versions = append(versions, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("version.Repository.ListByDocument iteration: %w", err)
 	}
 	return versions, nil
 }
@@ -204,6 +210,9 @@ func (r *PostgresVersionRepository) GetTags(ctx context.Context, versionID strin
 			return nil, fmt.Errorf("version.Repository.GetTags scan: %w", err)
 		}
 		tags = append(tags, tag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("version.Repository.GetTags iteration: %w", err)
 	}
 	return tags, nil
 }

@@ -91,6 +91,11 @@ func (h *Handler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Email) > 255 || len(req.Password) > 72 || len(req.Name) > 255 {
+		sharedErrors.BadRequest(w, "input too long")
+		return
+	}
+
 	result, err := h.uc.Register(r.Context(), usecase.RegisterInput{
 		Email:    req.Email,
 		Password: req.Password,

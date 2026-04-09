@@ -67,6 +67,9 @@ func (r *PostgresProjectRepository) ListByWorkspace(ctx context.Context, workspa
 		}
 		projects = append(projects, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("project.Repository.ListByWorkspace iteration: %w", err)
+	}
 	return projects, total, nil
 }
 
@@ -97,6 +100,9 @@ func (r *PostgresProjectRepository) ListByUser(ctx context.Context, userID strin
 			return nil, 0, fmt.Errorf("project.Repository.ListByUser scan: %w", err)
 		}
 		projects = append(projects, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("project.Repository.ListByUser iteration: %w", err)
 	}
 	return projects, total, nil
 }
@@ -174,6 +180,9 @@ func (r *PostgresWorkspaceRepository) ListByUser(ctx context.Context, userID str
 		}
 		workspaces = append(workspaces, ws)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("workspace.Repository.ListByUser iteration: %w", err)
+	}
 	return workspaces, nil
 }
 
@@ -239,6 +248,9 @@ func (r *PostgresMemberRepository) ListByProject(ctx context.Context, projectID 
 		}
 		members = append(members, m)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("member.Repository.ListByProject iteration: %w", err)
+	}
 	return members, nil
 }
 
@@ -261,6 +273,9 @@ func (r *PostgresMemberRepository) ListByProjectWithUsers(ctx context.Context, p
 			return nil, fmt.Errorf("member.Repository.ListByProjectWithUsers scan: %w", err)
 		}
 		members = append(members, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("member.Repository.ListByProjectWithUsers iteration: %w", err)
 	}
 	return members, nil
 }

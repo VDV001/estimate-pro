@@ -108,6 +108,14 @@ type UpdateProjectInput struct {
 }
 
 func (uc *ProjectUsecase) Update(ctx context.Context, input UpdateProjectInput) (*domain.Project, error) {
+	role, err := uc.memberRepo.GetRole(ctx, input.ID, input.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("project.Update: %w", err)
+	}
+	if !role.CanManageMembers() {
+		return nil, fmt.Errorf("project.Update: %w", domain.ErrInsufficientRole)
+	}
+
 	project, err := uc.projectRepo.GetByID(ctx, input.ID)
 	if err != nil {
 		return nil, fmt.Errorf("project.Update: %w", err)
@@ -128,6 +136,14 @@ func (uc *ProjectUsecase) Update(ctx context.Context, input UpdateProjectInput) 
 }
 
 func (uc *ProjectUsecase) Archive(ctx context.Context, id, userID string) (*domain.Project, error) {
+	role, err := uc.memberRepo.GetRole(ctx, id, userID)
+	if err != nil {
+		return nil, fmt.Errorf("project.Archive: %w", err)
+	}
+	if !role.CanManageMembers() {
+		return nil, fmt.Errorf("project.Archive: %w", domain.ErrInsufficientRole)
+	}
+
 	project, err := uc.projectRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("project.Archive: %w", err)
@@ -143,6 +159,14 @@ func (uc *ProjectUsecase) Archive(ctx context.Context, id, userID string) (*doma
 }
 
 func (uc *ProjectUsecase) Restore(ctx context.Context, id, userID string) (*domain.Project, error) {
+	role, err := uc.memberRepo.GetRole(ctx, id, userID)
+	if err != nil {
+		return nil, fmt.Errorf("project.Restore: %w", err)
+	}
+	if !role.CanManageMembers() {
+		return nil, fmt.Errorf("project.Restore: %w", domain.ErrInsufficientRole)
+	}
+
 	project, err := uc.projectRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("project.Restore: %w", err)

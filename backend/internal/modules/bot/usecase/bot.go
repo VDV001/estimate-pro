@@ -185,7 +185,8 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 	}
 
 	// Save conversation to memory (async, non-blocking).
-	go uc.saveMemory(ctx, link.UserID, chatID, text, result, string(intent.Type))
+	// Use context.WithoutCancel so the goroutine is not cancelled when the request ends.
+	go uc.saveMemory(context.WithoutCancel(ctx), link.UserID, chatID, text, result, string(intent.Type))
 
 	// Start session if the intent requires one.
 	if NeedsSession(intent.Type) {
@@ -243,6 +244,14 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 	if fileType == "" {
 		_ = uc.telegram.SetReaction(ctx, chatID, msgID, "🤔")
 		_ = uc.telegram.SendMessage(ctx, chatID, "Этот формат я пока не поддерживаю. Скинь PDF, DOCX, XLSX, MD, TXT или CSV!")
+		return nil
+	}
+
+	// Check file size before downloading.
+	const maxBotFileSize = 50 << 20 // 50MB, same as document module
+
+	if doc.FileSize > maxBotFileSize {
+		_ = uc.telegram.SendMessage(ctx, chatID, "Файл слишком большой (макс 50MB)")
 		return nil
 	}
 
@@ -326,7 +335,7 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 	_ = uc.telegram.SendMarkdown(ctx, chatID, fmt.Sprintf("Файл *%s* загружен в проект! 📎", doc.FileName))
 
 	// Save to memory.
-	go uc.saveMemory(ctx, userID, chatID, "Загрузил файл: "+doc.FileName, "Файл загружен", string(domain.IntentUploadDocument))
+	go uc.saveMemory(context.WithoutCancel(ctx), userID, chatID, "Загрузил файл: "+doc.FileName, "Файл загружен", string(domain.IntentUploadDocument))
 
 	return nil
 }

@@ -72,6 +72,9 @@ func (r *PostgresNotificationRepository) ListByUser(ctx context.Context, userID 
 		}
 		result = append(result, n)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("NotificationRepository.ListByUser iteration: %w", err)
+	}
 	return result, total, nil
 }
 
@@ -129,6 +132,9 @@ func (r *PostgresPreferenceRepository) Get(ctx context.Context, userID string) (
 			return nil, fmt.Errorf("PreferenceRepository.Get: scan: %w", err)
 		}
 		result = append(result, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("PreferenceRepository.Get iteration: %w", err)
 	}
 	return result, nil
 }
@@ -230,6 +236,9 @@ func (a *MemberListerAdapter) ListMemberUserIDs(ctx context.Context, projectID s
 			return nil, fmt.Errorf("MemberListerAdapter.ListMemberUserIDs: scan: %w", err)
 		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("MemberListerAdapter.ListMemberUserIDs iteration: %w", err)
 	}
 	return ids, nil
 }

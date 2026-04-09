@@ -460,6 +460,9 @@ func TestDelete_Success(t *testing.T) {
 				},
 			}
 			docRepo := &mockDocumentRepo{
+				getByIDFn: func(_ context.Context, id string) (*domain.Document, error) {
+					return &domain.Document{ID: id, UploadedBy: tt.userID}, nil
+				},
 				deleteFn: func(_ context.Context, id string) error {
 					if id != tt.docID {
 						t.Errorf("id = %q, want %q", id, tt.docID)

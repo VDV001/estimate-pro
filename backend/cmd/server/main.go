@@ -167,6 +167,7 @@ func main() {
 	r.Use(chimw.RealIP)
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.CORS(cfg.AllowedOrigins...))
+	r.Use(middleware.MaxBodySize(50 << 20)) // 50MB max request body
 	r.Use(chimw.Recoverer)
 
 	// Health check

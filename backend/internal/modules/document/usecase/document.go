@@ -134,6 +134,14 @@ func (uc *DocumentUsecase) Download(ctx context.Context, documentID string) (io.
 }
 
 func (uc *DocumentUsecase) Delete(ctx context.Context, id, userID string) error {
+	doc, err := uc.docRepo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("document.Delete: %w", err)
+	}
+	if doc.UploadedBy != userID {
+		return fmt.Errorf("document.Delete: only the uploader can delete")
+	}
+
 	versions, err := uc.versionRepo.ListByDocument(ctx, id)
 	if err != nil {
 		return fmt.Errorf("document.Delete list versions: %w", err)

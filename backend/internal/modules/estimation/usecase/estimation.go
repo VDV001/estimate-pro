@@ -165,5 +165,8 @@ func validateItem(item *domain.EstimationItem) error {
 	if item.TaskName == "" {
 		return fmt.Errorf("task name is required")
 	}
+	if len(item.TaskName) > 255 {
+		return fmt.Errorf("task name too long (max 255)")
+	}
 	return nil
 }
