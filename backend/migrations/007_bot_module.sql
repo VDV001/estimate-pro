@@ -12,7 +12,7 @@ CREATE TABLE bot_sessions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_bot_sessions_chat ON bot_sessions(chat_id) WHERE expires_at > NOW();
+CREATE INDEX idx_bot_sessions_chat ON bot_sessions(chat_id, expires_at DESC);
 
 CREATE TABLE bot_user_links (
     telegram_user_id BIGINT PRIMARY KEY,
