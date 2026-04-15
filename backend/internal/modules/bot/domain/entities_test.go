@@ -25,6 +25,7 @@ func TestIntentType_IsValid(t *testing.T) {
 		{"submit_estimation", IntentSubmitEstimation, true},
 		{"get_aggregated", IntentGetAggregated, true},
 		{"upload_document", IntentUploadDocument, true},
+		{"forgot_password", IntentForgotPassword, true},
 		{"help", IntentHelp, true},
 		{"unknown", IntentUnknown, true},
 		{"invalid", IntentType("invalid"), false},

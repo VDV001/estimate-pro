@@ -107,6 +107,20 @@ export async function uploadAvatar(file: File): Promise<User> {
   return response.json() as Promise<User>;
 }
 
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  await apiClient<{ message: string }>("/api/v1/auth/reset-password", {
+    method: "POST",
+    body: { token, new_password: newPassword },
+  });
+}
+
+export async function forgotPassword(email: string): Promise<void> {
+  await apiClient<{ message: string }>("/api/v1/auth/forgot-password", {
+    method: "POST",
+    body: { email },
+  });
+}
+
 export function logout(): void {
   clearTokens();
 }

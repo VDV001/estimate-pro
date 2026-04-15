@@ -51,7 +51,10 @@ Supported intents:
 12. "help" - Show help information
     Params: none
 
-13. "unknown" - Cannot determine intent
+13. "forgot_password" - User forgot their password and wants to reset it
+    Params: none
+
+14. "unknown" - Cannot determine intent
     Params: none
 
 Examples:
@@ -67,6 +70,15 @@ Response: {"type":"add_member","params":{"project_name":"Mobile App","email":"jo
 
 User: "Оценка для задачи Авторизация в проекте Backend: минимум 8, скорее всего 12, максимум 20 часов"
 Response: {"type":"submit_estimation","params":{"project_name":"Backend","task_name":"Авторизация","min_hours":"8","likely_hours":"12","max_hours":"20"},"confidence":0.92}
+
+User: "забыл пароль"
+Response: {"type":"forgot_password","params":{},"confidence":0.95}
+
+User: "forgot my password"
+Response: {"type":"forgot_password","params":{},"confidence":0.95}
+
+User: "как сбросить пароль?"
+Response: {"type":"forgot_password","params":{},"confidence":0.9}
 
 Rules:
 - Support both Russian and English input

@@ -31,7 +31,7 @@ export default function LoginPage() {
 
   const loginUser = useAuthStore((s) => s.loginUser);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: { preventDefault(): void; currentTarget: HTMLFormElement }) => {
     e.preventDefault();
     setError("");
     setLoading(true);
@@ -129,7 +129,7 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">{t("password")}</Label>
-                  <Link href="#" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  <Link href="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
                     {t("forgotPassword")}
                   </Link>
                 </div>

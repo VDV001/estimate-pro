@@ -203,7 +203,7 @@ func TestExecute(t *testing.T) {
 			}
 			docs := &mockDocumentManager{}
 
-			executor := usecase.NewIntentExecutor(projects, members, estimations, docs)
+			executor := usecase.NewIntentExecutor(projects, members, estimations, docs, nil)
 
 			msg, keyboard, err := executor.Execute(t.Context(), tc.intent, tc.userID)
 			if tc.wantErr && err == nil {

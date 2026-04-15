@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,6 +24,11 @@ type AuthUsecase struct {
 	tokenStore        domain.TokenStore
 	avatarStorage     domain.AvatarStorage
 	membershipChecker domain.MembershipChecker
+
+	resetTokenStore domain.ResetTokenStore // may be nil if not configured
+	resetNotifier   domain.ResetNotifier   // may be nil
+	frontendBaseURL string
+	resetTTL        time.Duration
 }
 
 func New(userRepo domain.UserRepository, workspaceCreator domain.WorkspaceCreator, jwtService *jwt.Service, tokenStore domain.TokenStore, avatarStorage domain.AvatarStorage, membershipChecker domain.MembershipChecker) *AuthUsecase {
@@ -245,6 +251,128 @@ func (uc *AuthUsecase) ListRecentlyAdded(ctx context.Context, userID string, lim
 		return nil, fmt.Errorf("auth.ListRecentlyAdded: %w", err)
 	}
 	return results, nil
+}
+
+// SetResetConfig configures password reset dependencies (optional, called after New).
+func (uc *AuthUsecase) SetResetConfig(resetStore domain.ResetTokenStore, frontendBaseURL string, resetTTL time.Duration) {
+	uc.resetTokenStore = resetStore
+	uc.frontendBaseURL = frontendBaseURL
+	uc.resetTTL = resetTTL
+}
+
+// SetResetNotifier sets the notifier used to deliver reset links to users.
+func (uc *AuthUsecase) SetResetNotifier(notifier domain.ResetNotifier) {
+	uc.resetNotifier = notifier
+}
+
+// ForgotPasswordOutput holds the result of a forgot-password request.
+type ForgotPasswordOutput struct {
+	Token  string // non-empty if token was generated
+	UserID string // for delivery lookup
+}
+
+// ForgotPassword generates a reset token for the given email.
+// Returns empty output (no error) for non-existent or OAuth-only users to avoid revealing email existence.
+func (uc *AuthUsecase) ForgotPassword(ctx context.Context, email string) (*ForgotPasswordOutput, error) {
+	if uc.resetTokenStore == nil {
+		return &ForgotPasswordOutput{}, nil // reset not configured
+	}
+
+	user, err := uc.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return &ForgotPasswordOutput{}, nil
+		}
+		return nil, fmt.Errorf("auth.ForgotPassword: %w", err)
+	}
+
+	// OAuth users can't reset password
+	if user.PasswordHash == "" {
+		return &ForgotPasswordOutput{}, nil
+	}
+
+	token := uuid.New().String()
+	if err := uc.resetTokenStore.Save(ctx, token, user.ID, uc.resetTTL); err != nil {
+		return nil, fmt.Errorf("auth.ForgotPassword save token: %w", err)
+	}
+
+	output := &ForgotPasswordOutput{Token: token, UserID: user.ID}
+
+	// Send notification (fire-and-forget)
+	if uc.resetNotifier != nil {
+		link := uc.ResetLink(token)
+		go func() {
+			_ = uc.resetNotifier.NotifyReset(context.Background(), user.ID, link)
+		}()
+	}
+
+	return output, nil
+}
+
+// ResetPasswordInput holds data for resetting a password.
+type ResetPasswordInput struct {
+	Token       string
+	NewPassword string
+}
+
+// ResetPassword consumes a reset token and updates the user's password.
+func (uc *AuthUsecase) ResetPassword(ctx context.Context, input ResetPasswordInput) error {
+	if uc.resetTokenStore == nil {
+		return fmt.Errorf("auth.ResetPassword: reset not configured")
+	}
+
+	userID, err := uc.resetTokenStore.Consume(ctx, input.Token)
+	if err != nil {
+		return fmt.Errorf("auth.ResetPassword: %w", err)
+	}
+
+	user, err := uc.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("auth.ResetPassword get user: %w", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("auth.ResetPassword hash: %w", err)
+	}
+
+	user.PasswordHash = string(hash)
+	user.UpdatedAt = time.Now()
+	if err := uc.userRepo.Update(ctx, user); err != nil {
+		return fmt.Errorf("auth.ResetPassword update: %w", err)
+	}
+
+	// Invalidate all refresh tokens — log but don't fail the reset.
+	if err := uc.tokenStore.DeleteAll(ctx, userID); err != nil {
+		slog.Warn("auth.ResetPassword: failed to invalidate refresh tokens", "user_id", userID, "error", err)
+	}
+
+	return nil
+}
+
+// ResetLink builds the frontend URL for a password reset token.
+func (uc *AuthUsecase) ResetLink(token string) string {
+	return fmt.Sprintf("%s/reset-password?token=%s", uc.frontendBaseURL, token)
+}
+
+// ForgotPasswordByUserID generates a reset link for a known user (used by bot intent).
+func (uc *AuthUsecase) ForgotPasswordByUserID(ctx context.Context, userID string) (string, error) {
+	if uc.resetTokenStore == nil {
+		return "", fmt.Errorf("auth.ForgotPasswordByUserID: reset not configured")
+	}
+
+	user, err := uc.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("auth.ForgotPasswordByUserID: %w", err)
+	}
+	if user.PasswordHash == "" {
+		return "", domain.ErrNoPassword
+	}
+	token := uuid.New().String()
+	if err := uc.resetTokenStore.Save(ctx, token, user.ID, uc.resetTTL); err != nil {
+		return "", fmt.Errorf("auth.ForgotPasswordByUserID: %w", err)
+	}
+	return uc.ResetLink(token), nil
 }
 
 type OAuthLoginInput struct {

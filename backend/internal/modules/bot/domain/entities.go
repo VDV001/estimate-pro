@@ -4,9 +4,14 @@
 package domain
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
+
+// ErrNoPassword indicates the user has no password (OAuth account).
+var ErrNoPassword = errors.New("no password to reset")
 
 // IntentType represents the type of user intent parsed from a message.
 type IntentType string
@@ -23,6 +28,7 @@ const (
 	IntentSubmitEstimation IntentType = "submit_estimation"
 	IntentGetAggregated    IntentType = "get_aggregated"
 	IntentUploadDocument   IntentType = "upload_document"
+	IntentForgotPassword   IntentType = "forgot_password"
 	IntentHelp             IntentType = "help"
 	IntentUnknown          IntentType = "unknown"
 )
@@ -41,6 +47,7 @@ func (t IntentType) IsValid() bool {
 		IntentSubmitEstimation,
 		IntentGetAggregated,
 		IntentUploadDocument,
+		IntentForgotPassword,
 		IntentHelp,
 		IntentUnknown:
 		return true
@@ -167,4 +174,9 @@ type UserPrefs struct {
 	Language  string             `json:"language"`
 	Notes     string             `json:"notes"` // LLM-generated observations
 	UpdatedAt time.Time          `json:"updated_at,omitzero"`
+}
+
+// PasswordResetManager generates password reset links.
+type PasswordResetManager interface {
+	RequestReset(ctx context.Context, userID string) (resetLink string, err error)
 }

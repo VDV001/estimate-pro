@@ -64,6 +64,8 @@ func FormatReaction(intentType domain.IntentType) string {
 		return "📊"
 	case domain.IntentListProjects, domain.IntentListMembers, domain.IntentGetProjectStatus:
 		return "👍"
+	case domain.IntentForgotPassword:
+		return "🔑"
 	case domain.IntentHelp:
 		return "💡"
 	default:

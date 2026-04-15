@@ -10,4 +10,6 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrEmailTaken         = errors.New("email already taken")
 	ErrTokenRevoked       = errors.New("refresh token revoked")
+	ErrResetTokenNotFound = errors.New("reset token not found or expired")
+	ErrNoPassword         = errors.New("account uses OAuth login, no password to reset")
 )
