@@ -65,6 +65,7 @@ func New(
 	members domain.MemberManager,
 	estimations domain.EstimationManager,
 	documents domain.DocumentManager,
+	passwords domain.PasswordResetManager,
 ) *BotUsecase {
 	return &BotUsecase{
 		sessions:    NewSessionManager(sessionRepo),
@@ -73,7 +74,7 @@ func New(
 		memory:      memoryRepo,
 		prefs:       prefsRepo,
 		telegram:    tg,
-		executor:    NewIntentExecutor(projects, members, estimations, documents),
+		executor:    NewIntentExecutor(projects, members, estimations, documents, passwords),
 		llmFactory:  llmFactory,
 		envLLM:      envLLM,
 		botUsername: botUsername,

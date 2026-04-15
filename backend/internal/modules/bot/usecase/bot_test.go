@@ -290,6 +290,7 @@ func (d *testBotDeps) build() *BotUsecase {
 		d.members,
 		d.estimations,
 		d.documents,
+		nil, // passwords (PasswordResetManager)
 	)
 }
 

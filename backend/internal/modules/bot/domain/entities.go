@@ -4,6 +4,7 @@
 package domain
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 )
@@ -23,6 +24,7 @@ const (
 	IntentSubmitEstimation IntentType = "submit_estimation"
 	IntentGetAggregated    IntentType = "get_aggregated"
 	IntentUploadDocument   IntentType = "upload_document"
+	IntentForgotPassword   IntentType = "forgot_password"
 	IntentHelp             IntentType = "help"
 	IntentUnknown          IntentType = "unknown"
 )
@@ -41,6 +43,7 @@ func (t IntentType) IsValid() bool {
 		IntentSubmitEstimation,
 		IntentGetAggregated,
 		IntentUploadDocument,
+		IntentForgotPassword,
 		IntentHelp,
 		IntentUnknown:
 		return true
@@ -167,4 +170,9 @@ type UserPrefs struct {
 	Language  string             `json:"language"`
 	Notes     string             `json:"notes"` // LLM-generated observations
 	UpdatedAt time.Time          `json:"updated_at,omitzero"`
+}
+
+// PasswordResetManager generates password reset links.
+type PasswordResetManager interface {
+	RequestReset(ctx context.Context, userID string) (resetLink string, err error)
 }

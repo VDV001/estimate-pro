@@ -234,6 +234,7 @@ func main() {
 		&botMemberAdapter{memberUC: memberUC},
 		&botEstimationAdapter{estimationUC: estimationUC},
 		&botDocumentAdapter{documentUC: documentUC},
+		&botPasswordResetAdapter{authUC: authUC},
 	)
 	botH := botHandler.New(botUC, cfg.TelegramBot.WebhookSecret)
 
@@ -520,4 +521,13 @@ func (a *resetNotifierAdapter) NotifyReset(ctx context.Context, userID, resetLin
 	}
 
 	return nil
+}
+
+// botPasswordResetAdapter implements botDomain.PasswordResetManager using existing auth usecase.
+type botPasswordResetAdapter struct {
+	authUC *authUsecase.AuthUsecase
+}
+
+func (a *botPasswordResetAdapter) RequestReset(ctx context.Context, userID string) (string, error) {
+	return a.authUC.ForgotPasswordByUserID(ctx, userID)
 }

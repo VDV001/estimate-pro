@@ -17,6 +17,7 @@ type IntentExecutor struct {
 	members     domain.MemberManager
 	estimations domain.EstimationManager
 	documents   domain.DocumentManager
+	passwords   domain.PasswordResetManager
 }
 
 // NewIntentExecutor creates a new IntentExecutor.
@@ -25,12 +26,14 @@ func NewIntentExecutor(
 	members domain.MemberManager,
 	estimations domain.EstimationManager,
 	documents domain.DocumentManager,
+	passwords domain.PasswordResetManager,
 ) *IntentExecutor {
 	return &IntentExecutor{
 		projects:    projects,
 		members:     members,
 		estimations: estimations,
 		documents:   documents,
+		passwords:   passwords,
 	}
 }
 
@@ -51,6 +54,8 @@ func (e *IntentExecutor) Execute(ctx context.Context, intent *domain.Intent, use
 		return e.listMembers(ctx, intent)
 	case domain.IntentGetAggregated:
 		return e.getAggregated(ctx, intent)
+	case domain.IntentForgotPassword:
+		return e.forgotPassword(ctx, intent, userID)
 	case domain.IntentHelp:
 		return e.help()
 	default:
@@ -205,6 +210,20 @@ func (e *IntentExecutor) getAggregated(ctx context.Context, intent *domain.Inten
 	}
 
 	return result, nil, nil
+}
+
+func (e *IntentExecutor) forgotPassword(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	if e.passwords == nil {
+		return "Password reset is not configured.", nil, nil
+	}
+	link, err := e.passwords.RequestReset(ctx, userID)
+	if err != nil {
+		if strings.Contains(err.Error(), "no password") {
+			return "Твой аккаунт использует вход через Google/GitHub. Пароль сбрасывать не нужно! 😊", nil, nil
+		}
+		return "", nil, fmt.Errorf("forgotPassword: %w", err)
+	}
+	return fmt.Sprintf("Вот ссылка для сброса пароля:\n%s\n\nДействует 15 минут ⏳", link), nil, nil
 }
 
 func (e *IntentExecutor) help() (string, [][]domain.InlineKeyboardButton, error) {
