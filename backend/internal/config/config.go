@@ -18,6 +18,7 @@ type Config struct {
 	OAuth          OAuthConfig
 	TelegramBot    TelegramBotConfig
 	LLM            LLMDefaultConfig
+	FrontendBaseURL string
 }
 
 type S3Config struct {
@@ -96,6 +97,7 @@ func Load() Config {
 			WebhookSecret: os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
 			BotUsername:   os.Getenv("TELEGRAM_BOT_USERNAME"),
 		},
+		FrontendBaseURL: cmp.Or(os.Getenv("FRONTEND_BASE_URL"), "http://localhost:3000"),
 		LLM: LLMDefaultConfig{
 			Provider: cmp.Or(os.Getenv("LLM_PROVIDER"), "claude"),
 			APIKey:   os.Getenv("LLM_API_KEY"),
