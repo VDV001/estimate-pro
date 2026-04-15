@@ -386,11 +386,8 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := h.uc.ForgotPassword(r.Context(), req.Email)
-	if err != nil {
-		sharedErrors.InternalError(w, "internal error")
-		return
-	}
+	// Always return 200 — never reveal email existence, even on internal error.
+	_, _ = h.uc.ForgotPassword(r.Context(), req.Email)
 
 	response.WriteJSON(w, http.StatusOK, map[string]string{
 		"message": "If an account exists, a reset link has been sent",
@@ -410,6 +407,10 @@ func (h *Handler) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.NewPassword) < 8 {
 		sharedErrors.BadRequest(w, "password must be at least 8 characters")
+		return
+	}
+	if len(req.NewPassword) > 72 {
+		sharedErrors.BadRequest(w, "password must be at most 72 characters")
 		return
 	}
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -273,6 +274,10 @@ type ForgotPasswordOutput struct {
 // ForgotPassword generates a reset token for the given email.
 // Returns empty output (no error) for non-existent or OAuth-only users to avoid revealing email existence.
 func (uc *AuthUsecase) ForgotPassword(ctx context.Context, email string) (*ForgotPasswordOutput, error) {
+	if uc.resetTokenStore == nil {
+		return &ForgotPasswordOutput{}, nil // reset not configured
+	}
+
 	user, err := uc.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
@@ -333,8 +338,10 @@ func (uc *AuthUsecase) ResetPassword(ctx context.Context, input ResetPasswordInp
 		return fmt.Errorf("auth.ResetPassword update: %w", err)
 	}
 
-	// Invalidate all refresh tokens
-	_ = uc.tokenStore.DeleteAll(ctx, userID)
+	// Invalidate all refresh tokens — log but don't fail the reset.
+	if err := uc.tokenStore.DeleteAll(ctx, userID); err != nil {
+		slog.Warn("auth.ResetPassword: failed to invalidate refresh tokens", "user_id", userID, "error", err)
+	}
 
 	return nil
 }
@@ -346,6 +353,10 @@ func (uc *AuthUsecase) ResetLink(token string) string {
 
 // ForgotPasswordByUserID generates a reset link for a known user (used by bot intent).
 func (uc *AuthUsecase) ForgotPasswordByUserID(ctx context.Context, userID string) (string, error) {
+	if uc.resetTokenStore == nil {
+		return "", fmt.Errorf("auth.ForgotPasswordByUserID: reset not configured")
+	}
+
 	user, err := uc.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return "", fmt.Errorf("auth.ForgotPasswordByUserID: %w", err)
