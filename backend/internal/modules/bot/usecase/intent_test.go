@@ -5,6 +5,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -91,21 +92,33 @@ func (m *mockDocumentManager) Upload(ctx context.Context, projectID, title, file
 	return nil
 }
 
+type mockPasswordResetManager struct {
+	requestResetFn func(ctx context.Context, userID string) (string, error)
+}
+
+func (m *mockPasswordResetManager) RequestReset(ctx context.Context, userID string) (string, error) {
+	if m.requestResetFn != nil {
+		return m.requestResetFn(ctx, userID)
+	}
+	return "", nil
+}
+
 // --- Tests ---
 
 func TestExecute(t *testing.T) {
 	tests := []struct {
-		name            string
-		intent          *domain.Intent
-		userID          string
-		projects        *mockProjectManager
-		members         *mockMemberManager
-		estimations     *mockEstimationManager
-		wantContains       []string
-		wantNotContains    []string
-		wantKeyboard       bool
-		wantKeyboardTexts  []string
-		wantErr            bool
+		name              string
+		intent            *domain.Intent
+		userID            string
+		projects          *mockProjectManager
+		members           *mockMemberManager
+		estimations       *mockEstimationManager
+		passwords         *mockPasswordResetManager
+		wantContains      []string
+		wantNotContains   []string
+		wantKeyboard      bool
+		wantKeyboardTexts []string
+		wantErr           bool
 	}{
 		{
 			name:   "ListProjects_Success",
@@ -133,6 +146,17 @@ func TestExecute(t *testing.T) {
 			wantContains: []string{"нет проектов"},
 		},
 		{
+			name:   "ListProjects_Error",
+			intent: &domain.Intent{Type: domain.IntentListProjects},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return nil, 0, errors.New("db error")
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name:   "Help",
 			intent: &domain.Intent{Type: domain.IntentHelp},
 			userID: "user-1",
@@ -144,13 +168,10 @@ func TestExecute(t *testing.T) {
 			},
 		},
 		{
-			name:   "Unknown",
-			intent: &domain.Intent{Type: domain.IntentUnknown},
-			userID: "user-1",
-			wantContains: []string{
-				"Не удалось распознать",
-				"помощь",
-			},
+			name:         "Unknown",
+			intent:       &domain.Intent{Type: domain.IntentUnknown},
+			userID:       "user-1",
+			wantContains: []string{"Не удалось распознать", "помощь"},
 		},
 		{
 			name:   "GetAggregated_Success",
@@ -164,13 +185,42 @@ func TestExecute(t *testing.T) {
 			wantContains: []string{"120ч", "80ч", "160ч"},
 		},
 		{
+			name:   "GetAggregated_NoProjectID",
+			intent: &domain.Intent{Type: domain.IntentGetAggregated, Params: map[string]string{}},
+			userID: "user-1",
+			wantContains: []string{"Выберите проект"},
+		},
+		{
+			name:   "GetAggregated_Error",
+			intent: &domain.Intent{Type: domain.IntentGetAggregated, Params: map[string]string{"project_id": "p1"}},
+			userID: "user-1",
+			estimations: &mockEstimationManager{
+				getAggregatedFn: func(_ context.Context, _ string) (string, error) {
+					return "", errors.New("estimation error")
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "CreateProject_ReturnsConfirmation",
 			intent: &domain.Intent{
 				Type:   domain.IntentCreateProject,
 				Params: map[string]string{"name": "NewProject", "description": "A cool project"},
 			},
-			userID:       "user-1",
+			userID:            "user-1",
 			wantContains:      []string{"NewProject", "A cool project"},
+			wantKeyboard:      true,
+			wantKeyboardTexts: []string{"Подтвердить", "Отмена"},
+		},
+		{
+			name: "CreateProject_NoDescription",
+			intent: &domain.Intent{
+				Type:   domain.IntentCreateProject,
+				Params: map[string]string{"name": "SimpleProject"},
+			},
+			userID:            "user-1",
+			wantContains:      []string{"SimpleProject"},
+			wantNotContains:   []string{"Описание"},
 			wantKeyboard:      true,
 			wantKeyboardTexts: []string{"Подтвердить", "Отмена"},
 		},
@@ -184,6 +234,227 @@ func TestExecute(t *testing.T) {
 			wantContains:      []string{"dev@example.com", "Alpha"},
 			wantKeyboard:      true,
 			wantKeyboardTexts: []string{"Developer", "Tech Lead", "PM", "Observer", "Admin"},
+		},
+		{
+			name: "AddMember_MissingParams",
+			intent: &domain.Intent{
+				Type:   domain.IntentAddMember,
+				Params: map[string]string{"project_name": "Alpha"},
+			},
+			userID:       "user-1",
+			wantContains: []string{"Укажите"},
+		},
+		{
+			name: "RemoveMember_Success",
+			intent: &domain.Intent{
+				Type:   domain.IntentRemoveMember,
+				Params: map[string]string{"project_name": "Alpha", "user_name": "John"},
+			},
+			userID:            "user-1",
+			wantContains:      []string{"Удалить", "John", "Alpha"},
+			wantKeyboard:      true,
+			wantKeyboardTexts: []string{"Подтвердить", "Отмена"},
+		},
+		{
+			name: "RemoveMember_MissingParams",
+			intent: &domain.Intent{
+				Type:   domain.IntentRemoveMember,
+				Params: map[string]string{},
+			},
+			userID:       "user-1",
+			wantContains: []string{"Укажите"},
+		},
+		{
+			name: "ListMembers_Success",
+			intent: &domain.Intent{
+				Type:   domain.IntentListMembers,
+				Params: map[string]string{"project_id": "p1"},
+			},
+			userID: "user-1",
+			members: &mockMemberManager{
+				listFn: func(_ context.Context, _ string) ([]domain.MemberSummary, error) {
+					return []domain.MemberSummary{
+						{UserID: "u1", UserName: "Alice", Role: "admin"},
+						{UserID: "u2", UserName: "Bob", Role: "developer"},
+					}, nil
+				},
+			},
+			wantContains: []string{"Alice", "Bob", "admin", "developer", "👥", "2"},
+		},
+		{
+			name: "ListMembers_Empty",
+			intent: &domain.Intent{
+				Type:   domain.IntentListMembers,
+				Params: map[string]string{"project_id": "p1"},
+			},
+			userID: "user-1",
+			members: &mockMemberManager{
+				listFn: func(_ context.Context, _ string) ([]domain.MemberSummary, error) {
+					return nil, nil
+				},
+			},
+			wantContains: []string{"нет участников"},
+		},
+		{
+			name: "ListMembers_NoProjectID",
+			intent: &domain.Intent{
+				Type:   domain.IntentListMembers,
+				Params: map[string]string{},
+			},
+			userID:       "user-1",
+			wantContains: []string{"Выберите проект"},
+		},
+		{
+			name: "ListMembers_Error",
+			intent: &domain.Intent{
+				Type:   domain.IntentListMembers,
+				Params: map[string]string{"project_id": "p1"},
+			},
+			userID: "user-1",
+			members: &mockMemberManager{
+				listFn: func(_ context.Context, _ string) ([]domain.MemberSummary, error) {
+					return nil, errors.New("db error")
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "GetProjectStatus_Success",
+			intent: &domain.Intent{
+				Type:   domain.IntentGetProjectStatus,
+				Params: map[string]string{"project_name": "Alpha"},
+			},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{
+						{ID: "p1", Name: "Alpha", Status: "active", MemberCount: 5},
+					}, 1, nil
+				},
+			},
+			wantContains: []string{"Alpha", "active", "5"},
+		},
+		{
+			name: "GetProjectStatus_NotFound",
+			intent: &domain.Intent{
+				Type:   domain.IntentGetProjectStatus,
+				Params: map[string]string{"project_name": "NonExistent"},
+			},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{
+						{ID: "p1", Name: "Alpha", Status: "active"},
+					}, 1, nil
+				},
+			},
+			wantContains: []string{"не найден"},
+		},
+		{
+			name: "GetProjectStatus_NoName",
+			intent: &domain.Intent{
+				Type:   domain.IntentGetProjectStatus,
+				Params: map[string]string{},
+			},
+			userID:       "user-1",
+			wantContains: []string{"Укажите"},
+		},
+		{
+			name: "GetProjectStatus_ListError",
+			intent: &domain.Intent{
+				Type:   domain.IntentGetProjectStatus,
+				Params: map[string]string{"project_name": "Alpha"},
+			},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return nil, 0, errors.New("db error")
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "ForgotPassword_Success",
+			intent: &domain.Intent{
+				Type:   domain.IntentForgotPassword,
+				Params: map[string]string{},
+			},
+			userID: "user-1",
+			passwords: &mockPasswordResetManager{
+				requestResetFn: func(_ context.Context, _ string) (string, error) {
+					return "https://example.com/reset/abc123", nil
+				},
+			},
+			wantContains: []string{"https://example.com/reset/abc123", "15 минут"},
+		},
+		{
+			name: "ForgotPassword_OAuthUser",
+			intent: &domain.Intent{
+				Type:   domain.IntentForgotPassword,
+				Params: map[string]string{},
+			},
+			userID: "user-1",
+			passwords: &mockPasswordResetManager{
+				requestResetFn: func(_ context.Context, _ string) (string, error) {
+					return "", domain.ErrNoPassword
+				},
+			},
+			wantContains: []string{"Google/GitHub"},
+		},
+		{
+			name: "ForgotPassword_Error",
+			intent: &domain.Intent{
+				Type:   domain.IntentForgotPassword,
+				Params: map[string]string{},
+			},
+			userID: "user-1",
+			passwords: &mockPasswordResetManager{
+				requestResetFn: func(_ context.Context, _ string) (string, error) {
+					return "", errors.New("internal error")
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "ForgotPassword_NilManager",
+			intent: &domain.Intent{
+				Type:   domain.IntentForgotPassword,
+				Params: map[string]string{},
+			},
+			userID:       "user-1",
+			passwords:    nil, // nil means not configured
+			wantContains: []string{"not configured"},
+		},
+		{
+			name: "ListProjects_WithMemberCounts",
+			intent: &domain.Intent{Type: domain.IntentListProjects},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{
+						{ID: "p1", Name: "Active", Status: "active", MemberCount: 10},
+						{ID: "p2", Name: "Draft", Status: "draft", MemberCount: 0},
+					}, 2, nil
+				},
+			},
+			wantContains:    []string{"Active", "10 уч.", "Draft", "📌"},
+			wantNotContains: []string{"Draft · 0"}, // zero member count should not show
+		},
+		{
+			name: "GetProjectStatus_CaseInsensitive",
+			intent: &domain.Intent{
+				Type:   domain.IntentGetProjectStatus,
+				Params: map[string]string{"project_name": "alpha"},
+			},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{
+						{ID: "p1", Name: "Alpha", Status: "active", MemberCount: 3},
+					}, 1, nil
+				},
+			},
+			wantContains: []string{"Alpha", "active"},
 		},
 	}
 
@@ -203,7 +474,12 @@ func TestExecute(t *testing.T) {
 			}
 			docs := &mockDocumentManager{}
 
-			executor := usecase.NewIntentExecutor(projects, members, estimations, docs, nil)
+			var passwords domain.PasswordResetManager
+			if tc.passwords != nil {
+				passwords = tc.passwords
+			}
+
+			executor := usecase.NewIntentExecutor(projects, members, estimations, docs, passwords)
 
 			msg, keyboard, err := executor.Execute(t.Context(), tc.intent, tc.userID)
 			if tc.wantErr && err == nil {
@@ -244,6 +520,35 @@ func TestExecute(t *testing.T) {
 						t.Errorf("keyboard should contain button %q, got buttons: %v", want, allTexts)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestNeedsSession(t *testing.T) {
+	tests := []struct {
+		intent domain.IntentType
+		want   bool
+	}{
+		{domain.IntentCreateProject, true},
+		{domain.IntentUpdateProject, true},
+		{domain.IntentAddMember, true},
+		{domain.IntentRemoveMember, true},
+		{domain.IntentListProjects, false},
+		{domain.IntentHelp, false},
+		{domain.IntentGetAggregated, false},
+		{domain.IntentListMembers, false},
+		{domain.IntentGetProjectStatus, false},
+		{domain.IntentUploadDocument, false},
+		{domain.IntentForgotPassword, false},
+		{domain.IntentUnknown, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.intent), func(t *testing.T) {
+			got := usecase.NeedsSession(tc.intent)
+			if got != tc.want {
+				t.Errorf("NeedsSession(%s) = %v, want %v", tc.intent, got, tc.want)
 			}
 		})
 	}
