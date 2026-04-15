@@ -180,6 +180,85 @@ func TestMemberUsecase_RemoveMember(t *testing.T) {
 	})
 }
 
+// --- Mock UserFinder ---
+
+type mockUserFinder struct {
+	emails map[string]string // email -> userID
+}
+
+func (m *mockUserFinder) FindByEmail(_ context.Context, email string) (string, error) {
+	id, ok := m.emails[email]
+	if !ok {
+		return "", errors.New("user not found")
+	}
+	return id, nil
+}
+
+func TestMemberUsecase_AddMemberByEmail(t *testing.T) {
+	memberRepo := &mockMemberRepo{
+		members: []*domain.Member{
+			{ProjectID: "p-1", UserID: "admin-1", Role: domain.RoleAdmin},
+		},
+	}
+	projectRepo := &mockProjectRepo{
+		projects: map[string]*domain.Project{
+			"p-1": {ID: "p-1", WorkspaceID: "ws-1"},
+		},
+	}
+	userFinder := &mockUserFinder{
+		emails: map[string]string{"dev@example.com": "dev-1"},
+	}
+	uc := usecase.NewMemberUsecase(memberRepo, projectRepo, userFinder)
+
+	t.Run("success", func(t *testing.T) {
+		err := uc.AddMemberByEmail(t.Context(), usecase.AddMemberByEmailInput{
+			ProjectID: "p-1",
+			Email:     "dev@example.com",
+			Role:      domain.RoleDeveloper,
+			CallerID:  "admin-1",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("user not found by email", func(t *testing.T) {
+		err := uc.AddMemberByEmail(t.Context(), usecase.AddMemberByEmailInput{
+			ProjectID: "p-1",
+			Email:     "nonexistent@example.com",
+			Role:      domain.RoleDeveloper,
+			CallerID:  "admin-1",
+		})
+		if err == nil {
+			t.Fatal("expected error for non-existent email")
+		}
+	})
+}
+
+func TestMemberUsecase_ListMembersWithUsers(t *testing.T) {
+	memberRepo := &mockMemberRepo{
+		members: []*domain.Member{
+			{ProjectID: "p-1", UserID: "admin-1", Role: domain.RoleAdmin},
+			{ProjectID: "p-1", UserID: "dev-1", Role: domain.RoleDeveloper},
+		},
+	}
+	projectRepo := &mockProjectRepo{
+		projects: map[string]*domain.Project{"p-1": {ID: "p-1"}},
+	}
+	uc := usecase.NewMemberUsecase(memberRepo, projectRepo, nil)
+
+	members, err := uc.ListMembersWithUsers(t.Context(), "p-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
+	}
+	if members[0].UserName != "Test User" {
+		t.Errorf("expected 'Test User', got %q", members[0].UserName)
+	}
+}
+
 func TestMemberUsecase_ListMembers(t *testing.T) {
 	memberRepo := &mockMemberRepo{
 		members: []*domain.Member{

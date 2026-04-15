@@ -137,6 +137,14 @@ func TestValidateAccess_Expired(t *testing.T) {
 	}
 }
 
+func TestRefreshTTL(t *testing.T) {
+	ttl := 7 * 24 * time.Hour
+	svc := NewService("secret", 15*time.Minute, ttl)
+	if got := svc.RefreshTTL(); got != ttl {
+		t.Errorf("RefreshTTL() = %v, want %v", got, ttl)
+	}
+}
+
 func TestValidateAccess_InvalidSignature(t *testing.T) {
 	svc1 := NewService("secret-one", 15*time.Minute, 24*time.Hour)
 	svc2 := NewService("secret-two", 15*time.Minute, 24*time.Hour)

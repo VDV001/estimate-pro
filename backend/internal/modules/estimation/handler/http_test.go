@@ -603,6 +603,81 @@ func TestDeleteEstimation_DraftSuccess(t *testing.T) {
 	}
 }
 
+// ==============================
+// SetOnEvent + emit tests
+// ==============================
+
+func TestSubmitEstimation_EmitsEvent(t *testing.T) {
+	estRepo := newMockEstimationRepo()
+	itemRepo := newMockItemRepo()
+	estRepo.seed(&domain.Estimation{
+		ID: testEstID, ProjectID: testProjectID, SubmittedBy: testUserID,
+		Status: domain.StatusDraft, CreatedAt: time.Now(),
+	})
+
+	uc := newTestUsecase(estRepo, itemRepo)
+	h := newTestHandler(uc, &mockRoleChecker{canEstimate: true})
+
+	var emittedEvent, emittedProject, emittedUser string
+	h.SetOnEvent(func(eventType, projectID, userID string) {
+		emittedEvent = eventType
+		emittedProject = projectID
+		emittedUser = userID
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/projects/"+testProjectID+"/estimations/"+testEstID+"/submit", nil)
+	req = requestWithChiParams(req, map[string]string{"projectId": testProjectID, "estId": testEstID})
+	req = requestWithUserID(req, testUserID)
+	rec := httptest.NewRecorder()
+
+	h.SubmitEstimation(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if emittedEvent != "estimation.submitted" {
+		t.Errorf("event: got %q, want estimation.submitted", emittedEvent)
+	}
+	if emittedProject != testProjectID {
+		t.Errorf("project: got %q, want %q", emittedProject, testProjectID)
+	}
+	if emittedUser != testUserID {
+		t.Errorf("user: got %q, want %q", emittedUser, testUserID)
+	}
+}
+
+func TestCreateEstimation_EmitsEvent(t *testing.T) {
+	estRepo := newMockEstimationRepo()
+	itemRepo := newMockItemRepo()
+	uc := newTestUsecase(estRepo, itemRepo)
+
+	var emittedEvent string
+	h := handler.New(uc, &mockRoleChecker{canEstimate: true}, func(eventType, projectID, userID string) {
+		emittedEvent = eventType
+	})
+
+	body := jsonBody(map[string]any{
+		"items": []map[string]any{
+			{"task_name": "Design", "min_hours": 2, "likely_hours": 4, "max_hours": 8, "sort_order": 1},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+testProjectID+"/estimations", body)
+	req = requestWithChiParams(req, map[string]string{"projectId": testProjectID})
+	req = requestWithUserID(req, testUserID)
+	rec := httptest.NewRecorder()
+
+	h.CreateEstimation(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if emittedEvent != "estimation.created" {
+		t.Errorf("event: got %q, want estimation.created", emittedEvent)
+	}
+}
+
 func TestDeleteEstimation_SubmittedFails(t *testing.T) {
 	estRepo := newMockEstimationRepo()
 	itemRepo := newMockItemRepo()

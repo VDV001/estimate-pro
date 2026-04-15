@@ -174,6 +174,93 @@ func TestAnswerCallbackQuery_Success(t *testing.T) {
 	}
 }
 
+func TestSetReaction_Success(t *testing.T) {
+	var gotPayload struct {
+		ChatID    string `json:"chat_id"`
+		MessageID int64  `json:"message_id"`
+		Reaction  []struct {
+			Type  string `json:"type"`
+			Emoji string `json:"emoji"`
+		} `json:"reaction"`
+	}
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/setMessageReaction" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotPayload)
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	})
+
+	err := client.SetReaction(t.Context(), "12345", 42, "🚀")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotPayload.ChatID != "12345" {
+		t.Errorf("chat_id = %q, want %q", gotPayload.ChatID, "12345")
+	}
+	if gotPayload.MessageID != 42 {
+		t.Errorf("message_id = %d, want 42", gotPayload.MessageID)
+	}
+	if len(gotPayload.Reaction) != 1 {
+		t.Fatalf("reaction count = %d, want 1", len(gotPayload.Reaction))
+	}
+	if gotPayload.Reaction[0].Emoji != "🚀" {
+		t.Errorf("emoji = %q, want 🚀", gotPayload.Reaction[0].Emoji)
+	}
+	if gotPayload.Reaction[0].Type != "emoji" {
+		t.Errorf("type = %q, want emoji", gotPayload.Reaction[0].Type)
+	}
+}
+
+func TestSetReaction_APIError(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":false,"description":"Bad Request: message not found"}`))
+	})
+
+	err := client.SetReaction(t.Context(), "12345", 999, "🔥")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestDownloadFile_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("file content here"))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := NewClient("test-token")
+	data, err := client.DownloadFile(t.Context(), srv.URL+"/file/test.pdf")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if string(data) != "file content here" {
+		t.Errorf("data = %q, want %q", string(data), "file content here")
+	}
+}
+
+func TestDownloadFile_NonOKStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := NewClient("test-token")
+	_, err := client.DownloadFile(t.Context(), srv.URL+"/file/missing.pdf")
+	if err == nil {
+		t.Fatal("expected error for 404 status, got nil")
+	}
+}
+
 func TestGetFileURL_Success(t *testing.T) {
 	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/getFile" {

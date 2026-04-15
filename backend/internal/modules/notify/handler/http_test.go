@@ -361,6 +361,24 @@ func TestMarkRead_NotFound(t *testing.T) {
 	}
 }
 
+func TestMarkRead_MissingID(t *testing.T) {
+	notifRepo := newMockNotifRepo()
+	prefRepo := newMockPrefRepo()
+	uc := newTestUsecase(notifRepo, prefRepo)
+	h := newTestHandler(uc)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/notifications//read", nil)
+	req = requestWithChiParam(req, "id", "")
+	req = requestWithUserID(req, testUserID)
+	rec := httptest.NewRecorder()
+
+	h.MarkRead(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestMarkRead_MissingUserContext(t *testing.T) {
 	notifRepo := newMockNotifRepo()
 	prefRepo := newMockPrefRepo()

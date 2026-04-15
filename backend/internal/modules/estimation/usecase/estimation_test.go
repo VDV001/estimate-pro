@@ -341,6 +341,54 @@ func TestGetAggregated(t *testing.T) {
 	}
 }
 
+func TestListByProject(t *testing.T) {
+	estRepo := newMockEstimationRepo()
+	itemRepo := newMockItemRepo()
+	uc := New(estRepo, itemRepo)
+
+	// Create two estimations for proj-1 and one for proj-2.
+	_, _ = uc.Create(t.Context(), CreateInput{
+		ProjectID: "proj-1", UserID: "user-1",
+		Items: []*domain.EstimationItem{{TaskName: "T1", MinHours: 1, LikelyHours: 2, MaxHours: 4}},
+	})
+	_, _ = uc.Create(t.Context(), CreateInput{
+		ProjectID: "proj-1", UserID: "user-2",
+		Items: []*domain.EstimationItem{{TaskName: "T2", MinHours: 1, LikelyHours: 2, MaxHours: 4}},
+	})
+	_, _ = uc.Create(t.Context(), CreateInput{
+		ProjectID: "proj-2", UserID: "user-1",
+		Items: []*domain.EstimationItem{{TaskName: "T3", MinHours: 1, LikelyHours: 2, MaxHours: 4}},
+	})
+
+	t.Run("returns estimations for project", func(t *testing.T) {
+		list, err := uc.ListByProject(t.Context(), "proj-1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(list) != 2 {
+			t.Errorf("expected 2 estimations, got %d", len(list))
+		}
+	})
+
+	t.Run("empty project returns empty list", func(t *testing.T) {
+		list, err := uc.ListByProject(t.Context(), "proj-999")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(list) != 0 {
+			t.Errorf("expected 0 estimations, got %d", len(list))
+		}
+	})
+}
+
+func TestSubmit_NotFound(t *testing.T) {
+	uc := New(newMockEstimationRepo(), newMockItemRepo())
+	err := uc.Submit(t.Context(), "nonexistent", "user-1")
+	if !errors.Is(err, domain.ErrEstimationNotFound) {
+		t.Errorf("expected ErrEstimationNotFound, got %v", err)
+	}
+}
+
 func TestGetByID_NotFound(t *testing.T) {
 	uc := New(newMockEstimationRepo(), newMockItemRepo())
 
