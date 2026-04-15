@@ -31,7 +31,7 @@ export default function RegisterPage() {
 
   const registerUser = useAuthStore((s) => s.registerUser);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: { preventDefault(): void; currentTarget: HTMLFormElement }) => {
     e.preventDefault();
     setError("");
     setLoading(true);
