@@ -50,3 +50,16 @@ type TokenStore interface {
 	Delete(ctx context.Context, userID, tokenID string) error
 	DeleteAll(ctx context.Context, userID string) error
 }
+
+// ResetTokenStore manages password reset tokens (Redis-backed, one-time use).
+type ResetTokenStore interface {
+	// Save stores a reset token mapping token→userID with TTL.
+	Save(ctx context.Context, token, userID string, ttl time.Duration) error
+	// Consume retrieves userID for the token and deletes it atomically (one-time use).
+	Consume(ctx context.Context, token string) (userID string, err error)
+}
+
+// ResetNotifier sends password reset links to users via available channels.
+type ResetNotifier interface {
+	NotifyReset(ctx context.Context, userID, resetLink string) error
+}
