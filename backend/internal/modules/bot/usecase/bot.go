@@ -10,9 +10,6 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/llm"
@@ -343,15 +340,12 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 
 // saveMemory stores user message and bot response in conversation history.
 func (uc *BotUsecase) saveMemory(ctx context.Context, userID, chatID, userMsg, botResponse, intent string) {
-	now := time.Now()
-	_ = uc.memory.Save(ctx, &domain.MemoryEntry{
-		ID: uuid.New().String(), UserID: userID, ChatID: chatID,
-		Role: "user", Content: userMsg, Intent: intent, CreatedAt: now,
-	})
-	_ = uc.memory.Save(ctx, &domain.MemoryEntry{
-		ID: uuid.New().String(), UserID: userID, ChatID: chatID,
-		Role: "esti", Content: botResponse, Intent: intent, CreatedAt: now.Add(time.Millisecond),
-	})
+	if userEntry, err := domain.NewMemoryEntry(userID, chatID, "user", userMsg, intent); err == nil {
+		_ = uc.memory.Save(ctx, userEntry)
+	}
+	if estiEntry, err := domain.NewMemoryEntry(userID, chatID, "esti", botResponse, intent); err == nil {
+		_ = uc.memory.Save(ctx, estiEntry)
+	}
 	// Trim old memories.
 	_ = uc.memory.DeleteOld(ctx, userID, memoryLimit)
 }
