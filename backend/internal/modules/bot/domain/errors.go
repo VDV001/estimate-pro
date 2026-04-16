@@ -26,4 +26,19 @@ var (
 
 	// ErrBotNotMentioned is returned when the bot is not mentioned in a group message.
 	ErrBotNotMentioned = errors.New("bot: bot was not mentioned in the message")
+
+	// ErrMissingChat is returned when a session or memory entry has no chat id.
+	ErrMissingChat = errors.New("bot: chat id is required")
+
+	// ErrMissingUser is returned when a session or memory entry has no user id.
+	ErrMissingUser = errors.New("bot: user id is required")
+
+	// ErrInvalidTTL is returned when a session ttl is non-positive.
+	ErrInvalidTTL = errors.New("bot: session ttl must be positive")
+
+	// ErrInvalidRole is returned when a memory entry role is not "user" or "esti".
+	ErrInvalidRole = errors.New("bot: memory role must be user or esti")
+
+	// ErrEmptyContent is returned when a memory entry content is empty.
+	ErrEmptyContent = errors.New("bot: memory content must be non-empty")
 )
