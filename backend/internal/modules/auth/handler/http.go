@@ -4,12 +4,12 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -24,13 +24,13 @@ import (
 
 type Handler struct {
 	uc      *usecase.AuthUsecase
-	resetRL *emailRateLimiter
+	resetRL *middleware.EmailRateLimiter
 }
 
-func New(uc *usecase.AuthUsecase) *Handler {
+func New(ctx context.Context, uc *usecase.AuthUsecase) *Handler {
 	return &Handler{
 		uc:      uc,
-		resetRL: newEmailRateLimiter(3, 10*time.Minute),
+		resetRL: middleware.NewEmailRateLimiter(ctx, 3, 10*time.Minute),
 	}
 }
 
@@ -433,59 +433,5 @@ func (h *Handler) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, map[string]string{
 		"message": "Password has been reset successfully",
 	})
-}
-
-// emailRateLimiter limits per-email request frequency (e.g. forgot-password).
-type emailRateLimiter struct {
-	mu      sync.Mutex
-	entries map[string]*emailRateEntry
-	limit   int
-	window  time.Duration
-}
-
-type emailRateEntry struct {
-	count   int
-	resetAt time.Time
-}
-
-func newEmailRateLimiter(limit int, window time.Duration) *emailRateLimiter {
-	rl := &emailRateLimiter{
-		entries: make(map[string]*emailRateEntry),
-		limit:   limit,
-		window:  window,
-	}
-	// Cleanup expired entries periodically to prevent memory leak.
-	go func() {
-		ticker := time.NewTicker(window)
-		defer ticker.Stop()
-		for range ticker.C {
-			rl.mu.Lock()
-			now := time.Now()
-			for email, entry := range rl.entries {
-				if now.After(entry.resetAt) {
-					delete(rl.entries, email)
-				}
-			}
-			rl.mu.Unlock()
-		}
-	}()
-	return rl
-}
-
-func (rl *emailRateLimiter) Allow(email string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	now := time.Now()
-	entry, exists := rl.entries[email]
-	if !exists || now.After(entry.resetAt) {
-		rl.entries[email] = &emailRateEntry{count: 1, resetAt: now.Add(rl.window)}
-		return true
-	}
-	if entry.count >= rl.limit {
-		return false
-	}
-	entry.count++
-	return true
 }
 

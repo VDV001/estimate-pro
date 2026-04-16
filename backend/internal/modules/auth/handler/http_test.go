@@ -274,7 +274,7 @@ func newTestUsecase(
 }
 
 func newTestHandler(uc *usecase.AuthUsecase) *handler.Handler {
-	return handler.New(uc)
+	return handler.New(context.Background(), uc)
 }
 
 func requestWithUserID(r *http.Request, userID string) *http.Request {

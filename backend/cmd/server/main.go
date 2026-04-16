@@ -167,7 +167,7 @@ func main() {
 	notifyUC := notifyUsecase.New(notifRepository, prefRepository, deliveryLogRepo, memberLister, emailSender, telegramSender)
 
 	// Handlers
-	authH := authHandler.New(authUC)
+	authH := authHandler.New(ctx, authUC)
 	memberUC := projectUsecase.NewMemberUsecase(memberRepo, projectRepository, &userFinderAdapter{repo: userRepo})
 	projectH := projectHandler.New(projectUC, memberUC, workspaceRepo)
 	documentH := documentHandler.New(documentUC)
