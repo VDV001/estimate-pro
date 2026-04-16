@@ -16,4 +16,6 @@ var (
 	ErrTaskNameTooLong    = errors.New("task name too long (max 255)")
 	ErrEmptyInput         = errors.New("empty input")
 	ErrNoValidItems       = errors.New("no valid items found")
+	ErrMissingProject     = errors.New("estimation project is required")
+	ErrMissingAuthor      = errors.New("estimation author is required")
 )
