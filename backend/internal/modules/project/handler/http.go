@@ -7,10 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/project/domain"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/project/usecase"
@@ -22,13 +20,13 @@ import (
 )
 
 type Handler struct {
-	uc            *usecase.ProjectUsecase
-	memberUC      *usecase.MemberUsecase
-	workspaceRepo domain.WorkspaceRepository
+	uc          *usecase.ProjectUsecase
+	memberUC    *usecase.MemberUsecase
+	workspaceUC *usecase.WorkspaceUsecase
 }
 
-func New(uc *usecase.ProjectUsecase, memberUC *usecase.MemberUsecase, workspaceRepo domain.WorkspaceRepository) *Handler {
-	return &Handler{uc: uc, memberUC: memberUC, workspaceRepo: workspaceRepo}
+func New(uc *usecase.ProjectUsecase, memberUC *usecase.MemberUsecase, workspaceUC *usecase.WorkspaceUsecase) *Handler {
+	return &Handler{uc: uc, memberUC: memberUC, workspaceUC: workspaceUC}
 }
 
 func (h *Handler) Register(r chi.Router, jwtService *jwt.Service, membershipMW ...func(http.Handler) http.Handler) {
@@ -68,7 +66,7 @@ func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workspaces, err := h.workspaceRepo.ListByUser(r.Context(), userID)
+	workspaces, err := h.workspaceUC.ListByUser(r.Context(), userID)
 	if err != nil {
 		sharedErrors.InternalError(w, "failed to list workspaces")
 		return
@@ -94,19 +92,12 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
-		sharedErrors.BadRequest(w, "name is required")
-		return
-	}
-
-	workspace := &domain.Workspace{
-		ID:        uuid.New().String(),
-		Name:      req.Name,
-		OwnerID:   userID,
-		CreatedAt: time.Now(),
-	}
-
-	if err := h.workspaceRepo.Create(r.Context(), workspace); err != nil {
+	workspace, err := h.workspaceUC.Create(r.Context(), req.Name, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidWorkspaceName) || errors.Is(err, domain.ErrMissingOwner) {
+			sharedErrors.BadRequest(w, err.Error())
+			return
+		}
 		sharedErrors.InternalError(w, "failed to create workspace")
 		return
 	}
@@ -132,29 +123,18 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" || len(req.Name) > 255 {
-		sharedErrors.BadRequest(w, "name is required and must be at most 255 characters")
-		return
-	}
-
-	ws, err := h.workspaceRepo.GetByID(r.Context(), wsID)
+	ws, err := h.workspaceUC.Rename(r.Context(), wsID, req.Name, userID)
 	if err != nil {
-		if errors.Is(err, domain.ErrWorkspaceNotFound) {
+		switch {
+		case errors.Is(err, domain.ErrWorkspaceNotFound):
 			sharedErrors.NotFound(w, "workspace not found")
-		} else {
-			sharedErrors.InternalError(w, "failed to get workspace")
+		case errors.Is(err, domain.ErrWorkspaceForbidden):
+			sharedErrors.Forbidden(w, "only workspace owner can rename")
+		case errors.Is(err, domain.ErrInvalidWorkspaceName):
+			sharedErrors.BadRequest(w, err.Error())
+		default:
+			sharedErrors.InternalError(w, "failed to update workspace")
 		}
-		return
-	}
-
-	if ws.OwnerID != userID {
-		sharedErrors.Forbidden(w, "only workspace owner can rename")
-		return
-	}
-
-	ws.Name = req.Name
-	if err := h.workspaceRepo.Update(r.Context(), ws); err != nil {
-		sharedErrors.InternalError(w, "failed to update workspace")
 		return
 	}
 

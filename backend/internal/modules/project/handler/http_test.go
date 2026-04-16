@@ -245,7 +245,8 @@ func requestWithChiParams(r *http.Request, params map[string]string) *http.Reque
 func newTestHandler(projectRepo domain.ProjectRepository, memberRepo domain.MemberRepository, workspaceRepo domain.WorkspaceRepository, userFinder domain.UserFinder) *handler.Handler {
 	uc := usecase.New(projectRepo, workspaceRepo, memberRepo)
 	memberUC := usecase.NewMemberUsecase(memberRepo, projectRepo, userFinder)
-	return handler.New(uc, memberUC, workspaceRepo)
+	workspaceUC := usecase.NewWorkspaceUsecase(workspaceRepo)
+	return handler.New(uc, memberUC, workspaceUC)
 }
 
 func seedProject(id, wsID, name, createdBy string) *domain.Project {
@@ -267,7 +268,7 @@ func seedProject(id, wsID, name, createdBy string) *domain.Project {
 
 func TestCreateWorkspace_Success(t *testing.T) {
 	repo := &mockWorkspaceRepo{}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	body, _ := json.Marshal(map[string]string{"name": "My Workspace"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces", bytes.NewReader(body))
@@ -305,7 +306,7 @@ func TestCreateWorkspace_Success(t *testing.T) {
 
 func TestCreateWorkspace_EmptyName(t *testing.T) {
 	repo := &mockWorkspaceRepo{}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	body, _ := json.Marshal(map[string]string{"name": ""})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces", bytes.NewReader(body))
@@ -325,7 +326,7 @@ func TestCreateWorkspace_EmptyName(t *testing.T) {
 
 func TestCreateWorkspace_MissingUserContext(t *testing.T) {
 	repo := &mockWorkspaceRepo{}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	body, _ := json.Marshal(map[string]string{"name": "Test"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces", bytes.NewReader(body))
@@ -340,7 +341,7 @@ func TestCreateWorkspace_MissingUserContext(t *testing.T) {
 
 func TestCreateWorkspace_InvalidJSON(t *testing.T) {
 	repo := &mockWorkspaceRepo{}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces", bytes.NewReader([]byte("not json")))
 	req = requestWithUserID(req, "user-1")
@@ -361,7 +362,7 @@ func TestListWorkspaces_ReturnsUserWorkspaces(t *testing.T) {
 			{ID: "ws-3", Name: "Other User WS", OwnerID: "user-2"},
 		},
 	}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces", nil)
 	req = requestWithUserID(req, "user-1")
@@ -385,7 +386,7 @@ func TestListWorkspaces_ReturnsUserWorkspaces(t *testing.T) {
 
 func TestListWorkspaces_MissingUserContext(t *testing.T) {
 	repo := &mockWorkspaceRepo{}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces", nil)
 	rec := httptest.NewRecorder()
@@ -403,7 +404,7 @@ func TestUpdateWorkspace_Success(t *testing.T) {
 			{ID: "ws-1", Name: "Old Name", OwnerID: "user-1"},
 		},
 	}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	body, _ := json.Marshal(map[string]string{"name": "New Name"})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/workspaces/ws-1", bytes.NewReader(body))
@@ -432,7 +433,7 @@ func TestUpdateWorkspace_EmptyName(t *testing.T) {
 			{ID: "ws-1", Name: "Name", OwnerID: "user-1"},
 		},
 	}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	body, _ := json.Marshal(map[string]string{"name": ""})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/workspaces/ws-1", bytes.NewReader(body))
@@ -449,7 +450,7 @@ func TestUpdateWorkspace_EmptyName(t *testing.T) {
 
 func TestUpdateWorkspace_NotFound(t *testing.T) {
 	repo := &mockWorkspaceRepo{}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	body, _ := json.Marshal(map[string]string{"name": "New"})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/workspaces/ws-999", bytes.NewReader(body))
@@ -470,7 +471,7 @@ func TestUpdateWorkspace_NotOwner(t *testing.T) {
 			{ID: "ws-1", Name: "Name", OwnerID: "user-1"},
 		},
 	}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	body, _ := json.Marshal(map[string]string{"name": "Hacked"})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/workspaces/ws-1", bytes.NewReader(body))
@@ -487,7 +488,7 @@ func TestUpdateWorkspace_NotOwner(t *testing.T) {
 
 func TestUpdateWorkspace_InvalidJSON(t *testing.T) {
 	repo := &mockWorkspaceRepo{}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/workspaces/ws-1", bytes.NewReader([]byte("bad")))
 	req = requestWithUserID(req, "user-1")
@@ -503,7 +504,7 @@ func TestUpdateWorkspace_InvalidJSON(t *testing.T) {
 
 func TestUpdateWorkspace_MissingUserContext(t *testing.T) {
 	repo := &mockWorkspaceRepo{}
-	h := handler.New(nil, nil, repo)
+	h := handler.New(nil, nil, usecase.NewWorkspaceUsecase(repo))
 
 	body, _ := json.Marshal(map[string]string{"name": "New"})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/workspaces/ws-1", bytes.NewReader(body))

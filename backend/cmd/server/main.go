@@ -169,7 +169,8 @@ func main() {
 	// Handlers
 	authH := authHandler.New(ctx, authUC)
 	memberUC := projectUsecase.NewMemberUsecase(memberRepo, projectRepository, &userFinderAdapter{repo: userRepo})
-	projectH := projectHandler.New(projectUC, memberUC, workspaceRepo)
+	workspaceUC := projectUsecase.NewWorkspaceUsecase(workspaceRepo)
+	projectH := projectHandler.New(projectUC, memberUC, workspaceUC)
 	documentH := documentHandler.New(documentUC)
 	estimationH := estimationHandler.New(estimationUC, &memberRoleAdapter{memberRepo})
 
