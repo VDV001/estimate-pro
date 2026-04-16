@@ -576,6 +576,27 @@ func TestCreateProject_MissingName(t *testing.T) {
 	}
 }
 
+func TestCreateProject_WhitespaceNameReturnsBadRequest(t *testing.T) {
+	// Whitespace-only name passes handler-level emptiness check but must be
+	// rejected by domain.NewProject. Handler must map ErrInvalidProjectName
+	// to 400, not a generic 500.
+	wsRepo := &mockWorkspaceRepo{
+		workspaces: []*domain.Workspace{{ID: "ws-1", Name: "WS", OwnerID: "user-1"}},
+	}
+	h := newTestHandler(&mockProjectRepo{}, &mockMemberRepo{}, wsRepo, nil)
+
+	body, _ := json.Marshal(map[string]string{"workspace_id": "ws-1", "name": "   "})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects", bytes.NewReader(body))
+	req = requestWithUserID(req, "user-1")
+	rec := httptest.NewRecorder()
+
+	h.CreateProject(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for whitespace name, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCreateProject_MissingWorkspaceID(t *testing.T) {
 	h := newTestHandler(&mockProjectRepo{}, &mockMemberRepo{}, &mockWorkspaceRepo{}, nil)
 
