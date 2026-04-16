@@ -12,7 +12,7 @@ import (
 
 func TestRateLimit(t *testing.T) {
 	t.Run("under limit passes", func(t *testing.T) {
-		handler := RateLimit(5, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := RateLimit(t.Context(), 5, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
@@ -30,7 +30,7 @@ func TestRateLimit(t *testing.T) {
 	})
 
 	t.Run("exceeds limit returns 429", func(t *testing.T) {
-		handler := RateLimit(3, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := RateLimit(t.Context(), 3, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
@@ -62,7 +62,7 @@ func TestRateLimit(t *testing.T) {
 	})
 
 	t.Run("different IPs have independent counters", func(t *testing.T) {
-		handler := RateLimit(2, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := RateLimit(t.Context(), 2, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
@@ -94,7 +94,7 @@ func TestRateLimit(t *testing.T) {
 	})
 
 	t.Run("window reset allows new requests", func(t *testing.T) {
-		handler := RateLimit(1, 50*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := RateLimit(t.Context(), 1, 50*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 

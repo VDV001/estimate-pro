@@ -242,7 +242,7 @@ func main() {
 	botH := botHandler.New(botUC, cfg.TelegramBot.WebhookSecret)
 
 	// Module routes
-	authRateLimiter := middleware.RateLimit(10, time.Minute) // 10 requests per minute per IP
+	authRateLimiter := middleware.RateLimit(ctx, 10, time.Minute) // 10 requests per minute per IP
 	authH.Register(r, jwtService, authRateLimiter)
 	oauthH.Register(r)
 	wsH.Register(r)

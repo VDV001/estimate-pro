@@ -4,6 +4,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -12,10 +13,11 @@ import (
 )
 
 // RateLimit provides per-IP rate limiting with a sliding window.
-func RateLimit(maxRequests int, window time.Duration) func(http.Handler) http.Handler {
+// Cleanup goroutine exits when ctx is cancelled.
+func RateLimit(ctx context.Context, maxRequests int, window time.Duration) func(http.Handler) http.Handler {
 	type entry struct {
-		count    int
-		resetAt  time.Time
+		count   int
+		resetAt time.Time
 	}
 
 	var (
@@ -27,15 +29,20 @@ func RateLimit(maxRequests int, window time.Duration) func(http.Handler) http.Ha
 	go func() {
 		ticker := time.NewTicker(window)
 		defer ticker.Stop()
-		for range ticker.C {
-			now := time.Now()
-			mu.Lock()
-			for ip, e := range clients {
-				if now.After(e.resetAt) {
-					delete(clients, ip)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				now := time.Now()
+				mu.Lock()
+				for ip, e := range clients {
+					if now.After(e.resetAt) {
+						delete(clients, ip)
+					}
 				}
+				mu.Unlock()
 			}
-			mu.Unlock()
 		}
 	}()
 
