@@ -54,14 +54,14 @@ func (s *BotSession) Advance(state json.RawMessage) {
 // NewMemoryEntry constructs a MemoryEntry enforcing invariants:
 // non-empty UserID/ChatID, Role in {"user","esti"}, non-empty Content.
 // Intent is optional. Auto ID, CreatedAt=now.
-func NewMemoryEntry(userID, chatID, role, content, intent string) (*MemoryEntry, error) {
+func NewMemoryEntry(userID, chatID string, role MemoryRole, content, intent string) (*MemoryEntry, error) {
 	if userID == "" {
 		return nil, ErrMissingUser
 	}
 	if chatID == "" {
 		return nil, ErrMissingChat
 	}
-	if role != "user" && role != "esti" {
+	if !role.IsValid() {
 		return nil, ErrInvalidRole
 	}
 	if content == "" {

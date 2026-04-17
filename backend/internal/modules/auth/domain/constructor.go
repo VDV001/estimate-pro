@@ -37,13 +37,23 @@ func NewUser(email, passwordHash, name, avatarURL string) (*User, error) {
 	}, nil
 }
 
-// UpdateProfile applies partial updates. Empty strings mean "keep current".
-// A non-empty but invalid name aborts without mutation. UpdatedAt advances
-// only when the update succeeds.
-func (u *User) UpdateProfile(name, avatarURL, telegramChatID, notificationEmail string) error {
+// ProfileUpdate holds optional profile fields. Nil pointer = "don't touch",
+// non-nil = "set to this value" (including empty string to clear).
+type ProfileUpdate struct {
+	Name              string
+	AvatarURL         *string
+	TelegramChatID    *string
+	NotificationEmail *string
+}
+
+// UpdateProfile applies partial updates. Non-empty Name is validated (1..255
+// after trim); empty Name means "keep current". Pointer fields use nil =
+// "don't touch", non-nil = "set" (allows clearing). If Name validation fails,
+// no field is mutated. UpdatedAt advances on success.
+func (u *User) UpdateProfile(upd ProfileUpdate) error {
 	var newName string
-	if name != "" {
-		trimmed := strings.TrimSpace(name)
+	if upd.Name != "" {
+		trimmed := strings.TrimSpace(upd.Name)
 		if trimmed == "" || len(trimmed) > maxNameLen {
 			return ErrInvalidName
 		}
@@ -52,15 +62,21 @@ func (u *User) UpdateProfile(name, avatarURL, telegramChatID, notificationEmail 
 	if newName != "" {
 		u.Name = newName
 	}
-	if avatarURL != "" {
-		u.AvatarURL = avatarURL
+	if upd.AvatarURL != nil {
+		u.AvatarURL = *upd.AvatarURL
 	}
-	if telegramChatID != "" {
-		u.TelegramChatID = telegramChatID
+	if upd.TelegramChatID != nil {
+		u.TelegramChatID = *upd.TelegramChatID
 	}
-	if notificationEmail != "" {
-		u.NotificationEmail = notificationEmail
+	if upd.NotificationEmail != nil {
+		u.NotificationEmail = *upd.NotificationEmail
 	}
 	u.UpdatedAt = time.Now()
 	return nil
+}
+
+// SetAvatar updates the avatar URL and stamps UpdatedAt.
+func (u *User) SetAvatar(url string) {
+	u.AvatarURL = url
+	u.UpdatedAt = time.Now()
 }

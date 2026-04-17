@@ -70,11 +70,17 @@ func TestNewUser_Validation(t *testing.T) {
 	}
 }
 
+func ptr(s string) *string { return &s }
+
 func TestUser_UpdateProfile(t *testing.T) {
 	u, _ := domain.NewUser("a@b.com", "hash", "Alice", "")
 	before := u.UpdatedAt
 
-	if err := u.UpdateProfile("Alice Updated", "url", "chat-id", "notify@x.com"); err != nil {
+	err := u.UpdateProfile(domain.ProfileUpdate{
+		Name: "Alice Updated", AvatarURL: ptr("url"),
+		TelegramChatID: ptr("chat-id"), NotificationEmail: ptr("notify@x.com"),
+	})
+	if err != nil {
 		t.Fatalf("UpdateProfile: %v", err)
 	}
 	if u.Name != "Alice Updated" {
@@ -88,10 +94,26 @@ func TestUser_UpdateProfile(t *testing.T) {
 	}
 }
 
+func TestUser_UpdateProfile_ClearFields(t *testing.T) {
+	u, _ := domain.NewUser("a@b.com", "hash", "Alice", "")
+	u.TelegramChatID = "old-id"
+
+	// nil = don't touch, ptr("") = clear
+	err := u.UpdateProfile(domain.ProfileUpdate{
+		TelegramChatID: ptr(""), NotificationEmail: nil,
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile: %v", err)
+	}
+	if u.TelegramChatID != "" {
+		t.Errorf("TelegramChatID should be cleared, got %q", u.TelegramChatID)
+	}
+}
+
 func TestUser_UpdateProfile_InvalidName(t *testing.T) {
 	u, _ := domain.NewUser("a@b.com", "hash", "Alice", "")
 
-	err := u.UpdateProfile(strings.Repeat("x", 256), "", "", "")
+	err := u.UpdateProfile(domain.ProfileUpdate{Name: strings.Repeat("x", 256)})
 	if !errors.Is(err, domain.ErrInvalidName) {
 		t.Errorf("err = %v, want ErrInvalidName", err)
 	}

@@ -135,7 +135,7 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 	var history []string
 	if memories, err := uc.memory.GetRecent(ctx, link.UserID, 10); err == nil {
 		for _, m := range memories {
-			history = append(history, m.Role+": "+m.Content)
+			history = append(history, string(m.Role)+": "+m.Content)
 		}
 	}
 
@@ -340,10 +340,10 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 
 // saveMemory stores user message and bot response in conversation history.
 func (uc *BotUsecase) saveMemory(ctx context.Context, userID, chatID, userMsg, botResponse, intent string) {
-	if userEntry, err := domain.NewMemoryEntry(userID, chatID, "user", userMsg, intent); err == nil {
+	if userEntry, err := domain.NewMemoryEntry(userID, chatID, domain.MemoryRoleUser, userMsg, intent); err == nil {
 		_ = uc.memory.Save(ctx, userEntry)
 	}
-	if estiEntry, err := domain.NewMemoryEntry(userID, chatID, "esti", botResponse, intent); err == nil {
+	if estiEntry, err := domain.NewMemoryEntry(userID, chatID, domain.MemoryRoleEsti, botResponse, intent); err == nil {
 		_ = uc.memory.Save(ctx, estiEntry)
 	}
 	// Trim old memories.

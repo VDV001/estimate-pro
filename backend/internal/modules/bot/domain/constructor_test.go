@@ -81,14 +81,14 @@ func TestBotSession_Advance(t *testing.T) {
 }
 
 func TestNewMemoryEntry_Valid(t *testing.T) {
-	e, err := domain.NewMemoryEntry("user-1", "chat-1", "user", "hello", "help")
+	e, err := domain.NewMemoryEntry("user-1", "chat-1", domain.MemoryRoleUser, "hello", "help")
 	if err != nil {
 		t.Fatalf("NewMemoryEntry: %v", err)
 	}
 	if e.ID == "" {
 		t.Error("ID must be auto-generated")
 	}
-	if e.UserID != "user-1" || e.ChatID != "chat-1" || e.Role != "user" {
+	if e.UserID != "user-1" || e.ChatID != "chat-1" || e.Role != domain.MemoryRoleUser {
 		t.Errorf("fields wrong: %+v", e)
 	}
 	if e.Content != "hello" || e.Intent != "help" {
@@ -104,14 +104,14 @@ func TestNewMemoryEntry_Validation(t *testing.T) {
 		name    string
 		userID  string
 		chatID  string
-		role    string
+		role    domain.MemoryRole
 		content string
 		want    error
 	}{
-		{"empty user", "", "c1", "user", "x", domain.ErrMissingUser},
-		{"empty chat", "u1", "", "user", "x", domain.ErrMissingChat},
-		{"invalid role", "u1", "c1", "admin", "x", domain.ErrInvalidRole},
-		{"empty content", "u1", "c1", "user", "", domain.ErrEmptyContent},
+		{"empty user", "", "c1", domain.MemoryRoleUser, "x", domain.ErrMissingUser},
+		{"empty chat", "u1", "", domain.MemoryRoleUser, "x", domain.ErrMissingChat},
+		{"invalid role", "u1", "c1", domain.MemoryRole("admin"), "x", domain.ErrInvalidRole},
+		{"empty content", "u1", "c1", domain.MemoryRoleUser, "", domain.ErrEmptyContent},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -124,8 +124,8 @@ func TestNewMemoryEntry_Validation(t *testing.T) {
 }
 
 func TestNewMemoryEntry_RolesValid(t *testing.T) {
-	for _, role := range []string{"user", "esti"} {
-		t.Run(role, func(t *testing.T) {
+	for _, role := range []domain.MemoryRole{domain.MemoryRoleUser, domain.MemoryRoleEsti} {
+		t.Run(string(role), func(t *testing.T) {
 			_, err := domain.NewMemoryEntry("u1", "c1", role, "x", "")
 			if err != nil {
 				t.Errorf("role %q should be valid: %v", role, err)

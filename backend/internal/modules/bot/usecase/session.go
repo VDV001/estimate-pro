@@ -83,9 +83,7 @@ func (sm *SessionManager) Advance(ctx context.Context, session *domain.BotSessio
 		return fmt.Errorf("SessionManager.Advance: marshal state: %w", err)
 	}
 
-	session.State = stateJSON
-	session.Step++
-	session.UpdatedAt = time.Now()
+	session.Advance(stateJSON)
 
 	if err := sm.repo.Update(ctx, session); err != nil {
 		return fmt.Errorf("SessionManager.Advance: %w", err)

@@ -173,16 +173,13 @@ func (uc *AuthUsecase) UpdateProfile(ctx context.Context, input UpdateProfileInp
 		return nil, fmt.Errorf("auth.UpdateProfile: %w", err)
 	}
 
-	if input.Name != "" {
-		user.Name = input.Name
+	if err := user.UpdateProfile(domain.ProfileUpdate{
+		Name:              input.Name,
+		TelegramChatID:    input.TelegramChatID,
+		NotificationEmail: input.NotificationEmail,
+	}); err != nil {
+		return nil, err
 	}
-	if input.TelegramChatID != nil {
-		user.TelegramChatID = *input.TelegramChatID
-	}
-	if input.NotificationEmail != nil {
-		user.NotificationEmail = *input.NotificationEmail
-	}
-	user.UpdatedAt = time.Now()
 
 	if err := uc.userRepo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("auth.UpdateProfile: %w", err)
@@ -202,8 +199,7 @@ func (uc *AuthUsecase) UploadAvatar(ctx context.Context, userID string, data []b
 		return nil, fmt.Errorf("auth.UploadAvatar upload: %w", err)
 	}
 
-	user.AvatarURL = fmt.Sprintf("/api/v1/auth/avatar/%s", userID)
-	user.UpdatedAt = time.Now()
+	user.SetAvatar(fmt.Sprintf("/api/v1/auth/avatar/%s", userID))
 
 	if err := uc.userRepo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("auth.UploadAvatar save: %w", err)
