@@ -55,17 +55,9 @@ func (sm *SessionManager) Create(
 		return nil, fmt.Errorf("SessionManager.Create: marshal state: %w", err)
 	}
 
-	now := time.Now()
-	session := &domain.BotSession{
-		ID:        fmt.Sprintf("ses_%d", now.UnixNano()),
-		ChatID:    chatID,
-		UserID:    userID,
-		Intent:    intent,
-		State:     stateJSON,
-		Step:      0,
-		ExpiresAt: now.Add(sessionTTL),
-		CreatedAt: now,
-		UpdatedAt: now,
+	session, err := domain.NewBotSession(chatID, userID, intent, stateJSON, sessionTTL)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := sm.repo.Create(ctx, session); err != nil {
@@ -91,9 +83,7 @@ func (sm *SessionManager) Advance(ctx context.Context, session *domain.BotSessio
 		return fmt.Errorf("SessionManager.Advance: marshal state: %w", err)
 	}
 
-	session.State = stateJSON
-	session.Step++
-	session.UpdatedAt = time.Now()
+	session.Advance(stateJSON)
 
 	if err := sm.repo.Update(ctx, session); err != nil {
 		return fmt.Errorf("SessionManager.Advance: %w", err)

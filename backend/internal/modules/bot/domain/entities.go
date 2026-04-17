@@ -147,15 +147,28 @@ type InlineKeyboardButton struct {
 	CallbackData string `json:"callback_data"`
 }
 
+// MemoryRole identifies the author of a memory entry.
+type MemoryRole string
+
+const (
+	MemoryRoleUser MemoryRole = "user"
+	MemoryRoleEsti MemoryRole = "esti"
+)
+
+// IsValid reports whether the role is known.
+func (r MemoryRole) IsValid() bool {
+	return r == MemoryRoleUser || r == MemoryRoleEsti
+}
+
 // MemoryEntry is a single message in conversation history.
 type MemoryEntry struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	ChatID    string    `json:"chat_id"`
-	Role      string    `json:"role"` // "user" or "esti"
-	Content   string    `json:"content"`
-	Intent    string    `json:"intent,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitzero"`
+	ID        string     `json:"id"`
+	UserID    string     `json:"user_id"`
+	ChatID    string     `json:"chat_id"`
+	Role      MemoryRole `json:"role"`
+	Content   string     `json:"content"`
+	Intent    string     `json:"intent,omitempty"`
+	CreatedAt time.Time  `json:"created_at,omitzero"`
 }
 
 // CommunicationStyle represents how the user prefers to interact.

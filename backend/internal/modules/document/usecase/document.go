@@ -7,9 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/document/domain"
 )
@@ -40,44 +37,29 @@ type DocumentWithLatestVersion struct {
 }
 
 func (uc *DocumentUsecase) Upload(ctx context.Context, input UploadInput) (*domain.Document, *domain.DocumentVersion, error) {
-	if !input.FileType.IsValid() {
-		return nil, nil, fmt.Errorf("document.Upload: %w", domain.ErrUnsupportedFileType)
-	}
-	if input.FileSize > domain.MaxFileSize {
-		return nil, nil, fmt.Errorf("document.Upload: %w", domain.ErrFileTooLarge)
-	}
-
-	now := time.Now()
-
-	doc := &domain.Document{
-		ID:         uuid.New().String(),
-		ProjectID:  input.ProjectID,
-		Title:      input.Title,
-		UploadedBy: input.UserID,
-		CreatedAt:  now,
+	doc, err := domain.NewDocument(input.ProjectID, input.Title, input.UserID)
+	if err != nil {
+		return nil, nil, err
 	}
 	if err := uc.docRepo.Create(ctx, doc); err != nil {
 		return nil, nil, fmt.Errorf("document.Upload create doc: %w", err)
 	}
 
-	versionID := uuid.New().String()
-	fileKey := fmt.Sprintf("documents/%s/%s/%s/%s", input.ProjectID, doc.ID, versionID, input.FileName)
+	// Build fileKey using doc ID; version ID is generated inside NewDocumentVersion.
+	// Use a two-pass pattern: validate version invariants first (reserving ID),
+	// then upload, then persist. A pre-built version avoids an orphan S3 object
+	// on validation failure.
+	version, err := domain.NewDocumentVersion(doc.ID, 1, "pending", input.FileType, input.FileSize, input.UserID)
+	if err != nil {
+		return nil, nil, err
+	}
+	fileKey := fmt.Sprintf("documents/%s/%s/%s/%s", input.ProjectID, doc.ID, version.ID, input.FileName)
+	version.FileKey = fileKey
 
 	if err := uc.storage.Upload(ctx, fileKey, input.Content, input.FileSize, contentTypeByFileType(input.FileType)); err != nil {
 		return nil, nil, fmt.Errorf("document.Upload s3: %w", err)
 	}
 
-	version := &domain.DocumentVersion{
-		ID:            versionID,
-		DocumentID:    doc.ID,
-		VersionNumber: 1,
-		FileKey:       fileKey,
-		FileType:      input.FileType,
-		FileSize:      input.FileSize,
-		ParsedStatus:  domain.ParsedStatusPending,
-		UploadedBy:    input.UserID,
-		UploadedAt:    now,
-	}
 	if err := uc.versionRepo.Create(ctx, version); err != nil {
 		return nil, nil, fmt.Errorf("document.Upload create version: %w", err)
 	}

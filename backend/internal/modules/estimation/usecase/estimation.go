@@ -6,9 +6,6 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/estimation/domain"
 )
@@ -26,44 +23,49 @@ type CreateInput struct {
 	ProjectID         string
 	DocumentVersionID string
 	UserID            string
-	Items             []*domain.EstimationItem
+	Items             []CreateItemInput
+}
+
+// CreateItemInput — транспорт из handler в usecase. Не является доменной
+// сущностью; валидируется в NewEstimationItem.
+type CreateItemInput struct {
+	TaskName    string
+	MinHours    float64
+	LikelyHours float64
+	MaxHours    float64
+	Note        string
 }
 
 func (uc *EstimationUsecase) Create(ctx context.Context, input CreateInput) (*domain.EstimationWithItems, error) {
 	if len(input.Items) == 0 {
-		return nil, fmt.Errorf("estimation.Create: %w", domain.ErrEmptyItems)
+		return nil, domain.ErrEmptyItems
 	}
 
-	for _, item := range input.Items {
-		if err := validateItem(item); err != nil {
-			return nil, fmt.Errorf("estimation.Create: %w", err)
+	est, err := domain.NewEstimation(input.ProjectID, input.UserID, input.DocumentVersionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate items via domain constructor before touching persistence.
+	validated := make([]*domain.EstimationItem, 0, len(input.Items))
+	for i, raw := range input.Items {
+		item, err := domain.NewEstimationItem(raw.TaskName, raw.MinHours, raw.LikelyHours, raw.MaxHours, raw.Note)
+		if err != nil {
+			return nil, err
 		}
-	}
-
-	now := time.Now()
-	est := &domain.Estimation{
-		ID:                uuid.New().String(),
-		ProjectID:         input.ProjectID,
-		DocumentVersionID: input.DocumentVersionID,
-		SubmittedBy:       input.UserID,
-		Status:            domain.StatusDraft,
-		CreatedAt:         now,
+		item.AttachTo(est.ID, i)
+		validated = append(validated, item)
 	}
 
 	if err := uc.estRepo.Create(ctx, est); err != nil {
 		return nil, fmt.Errorf("estimation.Create: %w", err)
 	}
 
-	for _, item := range input.Items {
-		item.ID = uuid.New().String()
-		item.EstimationID = est.ID
-	}
-
-	if err := uc.itemRepo.CreateBatch(ctx, input.Items); err != nil {
+	if err := uc.itemRepo.CreateBatch(ctx, validated); err != nil {
 		return nil, fmt.Errorf("estimation.Create items: %w", err)
 	}
 
-	return &domain.EstimationWithItems{Estimation: est, Items: input.Items}, nil
+	return &domain.EstimationWithItems{Estimation: est, Items: validated}, nil
 }
 
 func (uc *EstimationUsecase) GetByID(ctx context.Context, id string) (*domain.EstimationWithItems, error) {
@@ -94,12 +96,12 @@ func (uc *EstimationUsecase) Submit(ctx context.Context, id, userID string) erro
 		return fmt.Errorf("estimation.Submit: %w", err)
 	}
 
-	if est.SubmittedBy != userID {
-		return fmt.Errorf("estimation.Submit: %w", domain.ErrNotAuthor)
+	if err := est.AuthorizeAuthor(userID); err != nil {
+		return err
 	}
 
-	if est.IsSubmitted() {
-		return fmt.Errorf("estimation.Submit: %w", domain.ErrAlreadySubmitted)
+	if err := est.Submit(); err != nil {
+		return err
 	}
 
 	if err := uc.estRepo.UpdateStatus(ctx, id, domain.StatusSubmitted); err != nil {
@@ -115,12 +117,12 @@ func (uc *EstimationUsecase) Delete(ctx context.Context, id, userID string) erro
 		return fmt.Errorf("estimation.Delete: %w", err)
 	}
 
-	if est.SubmittedBy != userID {
-		return fmt.Errorf("estimation.Delete: %w", domain.ErrNotAuthor)
+	if err := est.AuthorizeAuthor(userID); err != nil {
+		return err
 	}
 
 	if est.IsSubmitted() {
-		return fmt.Errorf("estimation.Delete: %w", domain.ErrNotDraft)
+		return domain.ErrNotDraft
 	}
 
 	if err := uc.itemRepo.DeleteByEstimation(ctx, id); err != nil {
@@ -155,18 +157,3 @@ func (uc *EstimationUsecase) GetAggregated(ctx context.Context, projectID string
 	return domain.Aggregate(withItems), nil
 }
 
-func validateItem(item *domain.EstimationItem) error {
-	if item.MinHours < 0 || item.LikelyHours < 0 || item.MaxHours < 0 {
-		return domain.ErrInvalidHours
-	}
-	if item.MinHours > item.LikelyHours || item.LikelyHours > item.MaxHours {
-		return domain.ErrInvalidHours
-	}
-	if item.TaskName == "" {
-		return domain.ErrTaskNameRequired
-	}
-	if len(item.TaskName) > 255 {
-		return domain.ErrTaskNameTooLong
-	}
-	return nil
-}

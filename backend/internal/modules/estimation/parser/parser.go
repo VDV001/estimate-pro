@@ -57,29 +57,17 @@ func Parse(input string) ([]*domain.EstimationItem, error) {
 			return nil, fmt.Errorf("parser.Parse: line %d: invalid max_hours %q: %w", i+1, parts[3], err)
 		}
 
-		if minH < 0 || likelyH < 0 || maxH < 0 {
-			return nil, fmt.Errorf("parser.Parse: line %d: hours must be non-negative", i+1)
-		}
-		if minH > likelyH {
-			return nil, fmt.Errorf("parser.Parse: line %d: min_hours (%v) must be <= likely_hours (%v)", i+1, minH, likelyH)
-		}
-		if likelyH > maxH {
-			return nil, fmt.Errorf("parser.Parse: line %d: likely_hours (%v) must be <= max_hours (%v)", i+1, likelyH, maxH)
-		}
-
 		var note string
 		if len(parts) >= 5 {
 			note = strings.TrimSpace(parts[4])
 		}
 
-		items = append(items, &domain.EstimationItem{
-			TaskName:    taskName,
-			MinHours:    minH,
-			LikelyHours: likelyH,
-			MaxHours:    maxH,
-			SortOrder:   order,
-			Note:        note,
-		})
+		item, err := domain.NewEstimationItem(taskName, minH, likelyH, maxH, note)
+		if err != nil {
+			return nil, fmt.Errorf("parser.Parse: line %d: %w", i+1, err)
+		}
+		item.SortOrder = order
+		items = append(items, item)
 		order++
 	}
 

@@ -102,14 +102,13 @@ func (h *Handler) CreateEstimation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]*domain.EstimationItem, len(req.Items))
+	items := make([]usecase.CreateItemInput, len(req.Items))
 	for i, dto := range req.Items {
-		items[i] = &domain.EstimationItem{
+		items[i] = usecase.CreateItemInput{
 			TaskName:    dto.TaskName,
 			MinHours:    dto.MinHours,
 			LikelyHours: dto.LikelyHours,
 			MaxHours:    dto.MaxHours,
-			SortOrder:   dto.SortOrder,
 			Note:        dto.Note,
 		}
 	}
@@ -122,10 +121,13 @@ func (h *Handler) CreateEstimation(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		switch {
-		case errors.Is(err, domain.ErrEmptyItems):
-			sharedErrors.BadRequest(w, "estimation must have at least one item")
-		case errors.Is(err, domain.ErrInvalidHours):
-			sharedErrors.BadRequest(w, "invalid hours: must be non-negative and min <= likely <= max")
+		case errors.Is(err, domain.ErrEmptyItems),
+			errors.Is(err, domain.ErrInvalidHours),
+			errors.Is(err, domain.ErrTaskNameRequired),
+			errors.Is(err, domain.ErrTaskNameTooLong),
+			errors.Is(err, domain.ErrMissingProject),
+			errors.Is(err, domain.ErrMissingAuthor):
+			sharedErrors.BadRequest(w, err.Error())
 		default:
 			slog.Error("failed to create estimation", "error", err)
 			sharedErrors.InternalError(w, "failed to create estimation")

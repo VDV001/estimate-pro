@@ -60,15 +60,9 @@ func (uc *AuthUsecase) Register(ctx context.Context, input RegisterInput) (*Auth
 		return nil, fmt.Errorf("auth.Register hash: %w", err)
 	}
 
-	now := time.Now()
-	user := &domain.User{
-		ID:              uuid.New().String(),
-		Email:           input.Email,
-		PasswordHash:    string(hash),
-		Name:            input.Name,
-		PreferredLocale: "ru",
-		CreatedAt:       now,
-		UpdatedAt:       now,
+	user, err := domain.NewUser(input.Email, string(hash), input.Name, "")
+	if err != nil {
+		return nil, err
 	}
 
 	if err := uc.userRepo.Create(ctx, user); err != nil {
@@ -179,16 +173,13 @@ func (uc *AuthUsecase) UpdateProfile(ctx context.Context, input UpdateProfileInp
 		return nil, fmt.Errorf("auth.UpdateProfile: %w", err)
 	}
 
-	if input.Name != "" {
-		user.Name = input.Name
+	if err := user.UpdateProfile(domain.ProfileUpdate{
+		Name:              input.Name,
+		TelegramChatID:    input.TelegramChatID,
+		NotificationEmail: input.NotificationEmail,
+	}); err != nil {
+		return nil, err
 	}
-	if input.TelegramChatID != nil {
-		user.TelegramChatID = *input.TelegramChatID
-	}
-	if input.NotificationEmail != nil {
-		user.NotificationEmail = *input.NotificationEmail
-	}
-	user.UpdatedAt = time.Now()
 
 	if err := uc.userRepo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("auth.UpdateProfile: %w", err)
@@ -208,8 +199,7 @@ func (uc *AuthUsecase) UploadAvatar(ctx context.Context, userID string, data []b
 		return nil, fmt.Errorf("auth.UploadAvatar upload: %w", err)
 	}
 
-	user.AvatarURL = fmt.Sprintf("/api/v1/auth/avatar/%s", userID)
-	user.UpdatedAt = time.Now()
+	user.SetAvatar(fmt.Sprintf("/api/v1/auth/avatar/%s", userID))
 
 	if err := uc.userRepo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("auth.UploadAvatar save: %w", err)
@@ -391,16 +381,9 @@ func (uc *AuthUsecase) OAuthLogin(ctx context.Context, input OAuthLoginInput) (*
 
 	if user == nil {
 		// Create new user (no password for OAuth users)
-		now := time.Now()
-		user = &domain.User{
-			ID:              uuid.New().String(),
-			Email:           input.Email,
-			PasswordHash:    "", // OAuth users have no password
-			Name:            input.Name,
-			AvatarURL:       input.AvatarURL,
-			PreferredLocale: "ru",
-			CreatedAt:       now,
-			UpdatedAt:       now,
+		user, err = domain.NewUser(input.Email, "", input.Name, input.AvatarURL)
+		if err != nil {
+			return nil, err
 		}
 
 		if err := uc.userRepo.Create(ctx, user); err != nil {

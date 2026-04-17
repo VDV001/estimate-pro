@@ -12,4 +12,6 @@ var (
 	ErrTokenRevoked       = errors.New("refresh token revoked")
 	ErrResetTokenNotFound = errors.New("reset token not found or expired")
 	ErrNoPassword         = errors.New("account uses OAuth login, no password to reset")
+	ErrInvalidEmail       = errors.New("email is required")
+	ErrInvalidName        = errors.New("name must be 1..255 characters")
 )

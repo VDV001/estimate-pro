@@ -7,10 +7,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/notify/domain"
-	"github.com/google/uuid"
 )
 
 // NotificationUsecase orchestrates notification creation, delivery, and preference management.
@@ -64,19 +62,13 @@ func (uc *NotificationUsecase) Dispatch(ctx context.Context, event domain.Notify
 	}
 
 	// Create in-app notifications in batch.
-	now := time.Now()
 	notifications := make([]*domain.Notification, 0, len(recipients))
 	for _, uid := range recipients {
-		notifications = append(notifications, &domain.Notification{
-			ID:        uuid.New().String(),
-			UserID:    uid,
-			EventType: event.EventType,
-			Title:     event.Title,
-			Message:   event.Message,
-			ProjectID: event.ProjectID,
-			Read:      false,
-			CreatedAt: now,
-		})
+		n, err := domain.NewNotification(uid, event.EventType, event.Title, event.Message, event.ProjectID)
+		if err != nil {
+			return fmt.Errorf("NotificationUsecase.Dispatch: %w", err)
+		}
+		notifications = append(notifications, n)
 	}
 
 	if err := uc.notifRepo.CreateBatch(ctx, notifications); err != nil {
@@ -108,14 +100,12 @@ func (uc *NotificationUsecase) Dispatch(ctx context.Context, event domain.Notify
 				status = "failed"
 			}
 
-			if logErr := uc.logRepo.Create(ctx, &domain.DeliveryLog{
-				ID:        uuid.New().String(),
-				UserID:    uid,
-				EventType: event.EventType,
-				Channel:   ch,
-				SentAt:    time.Now(),
-				Status:    status,
-			}); logErr != nil {
+			dl, dlErr := domain.NewDeliveryLog(uid, event.EventType, ch, status)
+			if dlErr != nil {
+				slog.Error("failed to build delivery log", "user", uid, "channel", ch, "error", dlErr)
+				continue
+			}
+			if logErr := uc.logRepo.Create(ctx, dl); logErr != nil {
 				slog.Error("failed to create delivery log", "user", uid, "channel", ch, "error", logErr)
 			}
 		}
@@ -165,11 +155,11 @@ func (uc *NotificationUsecase) GetPreferences(ctx context.Context, userID string
 
 	for ch, enabled := range defaults {
 		if !existing[ch] {
-			prefs = append(prefs, &domain.Preference{
-				UserID:  userID,
-				Channel: ch,
-				Enabled: enabled,
-			})
+			p, err := domain.NewPreference(userID, ch, enabled)
+			if err != nil {
+				return nil, fmt.Errorf("NotificationUsecase.GetPreferences defaults: %w", err)
+			}
+			prefs = append(prefs, p)
 		}
 	}
 
@@ -178,13 +168,9 @@ func (uc *NotificationUsecase) GetPreferences(ctx context.Context, userID string
 
 // SetPreference updates a user's preference for a given channel.
 func (uc *NotificationUsecase) SetPreference(ctx context.Context, userID string, channel domain.Channel, enabled bool) error {
-	if !channel.IsValid() {
-		return domain.ErrInvalidChannel
+	p, err := domain.NewPreference(userID, channel, enabled)
+	if err != nil {
+		return err
 	}
-
-	return uc.prefRepo.Upsert(ctx, &domain.Preference{
-		UserID:  userID,
-		Channel: channel,
-		Enabled: enabled,
-	})
+	return uc.prefRepo.Upsert(ctx, p)
 }
