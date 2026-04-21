@@ -5,6 +5,7 @@ package llm
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
@@ -32,12 +33,15 @@ func NewClassifier(parser domain.LLMParser) *Classifier {
 
 // Classify determines if a message is directed at the bot, a casual mention, or unrelated.
 func (c *Classifier) Classify(ctx context.Context, message string) MentionType {
+	slog.DebugContext(ctx, "Classifier.Classify: start", slog.Int("msg_len", len(message)))
+
 	// Use the classifier prompt (no personality) via ParseIntent.
 	// We temporarily override by passing the classifier prompt as the message
 	// with a special prefix the parser will handle.
 	intent, err := c.parser.ParseIntent(ctx, message, []string{"__classifier__"})
 	if err != nil {
 		// On error, assume directed (fail open for UX).
+		slog.WarnContext(ctx, "Classifier.Classify: LLM failed, assuming directed", slog.String("error", err.Error()))
 		return MentionDirected
 	}
 
@@ -47,14 +51,18 @@ func (c *Classifier) Classify(ctx context.Context, message string) MentionType {
 		result = strings.ToLower(string(intent.Type))
 	}
 
+	var mentionType MentionType
 	switch {
 	case strings.Contains(result, "directed"):
-		return MentionDirected
+		mentionType = MentionDirected
 	case strings.Contains(result, "mentioned"):
-		return MentionCasual
+		mentionType = MentionCasual
 	case strings.Contains(result, "unrelated"):
-		return MentionUnrelated
+		mentionType = MentionUnrelated
 	default:
-		return MentionDirected // fail open
+		mentionType = MentionDirected // fail open
 	}
+
+	slog.DebugContext(ctx, "Classifier.Classify: done", slog.String("result", string(mentionType)))
+	return mentionType
 }

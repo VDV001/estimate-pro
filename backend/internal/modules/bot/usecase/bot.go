@@ -88,11 +88,22 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 	msg := update.Message
 	chatID := strconv.FormatInt(msg.Chat.ID, 10)
 
+	slog.InfoContext(ctx, "BotUsecase.ProcessMessage: incoming",
+		slog.String("chat_id", chatID),
+		slog.String("chat_type", msg.Chat.Type),
+		slog.Int64("from_id", msg.From.ID),
+		slog.String("from_username", msg.From.Username),
+		slog.Int("text_len", len(msg.Text)),
+		slog.Bool("has_document", msg.Document != nil),
+	)
+
 	// Group chat: only process if bot is mentioned or replied to.
 	if msg.Chat.Type == "group" || msg.Chat.Type == "supergroup" {
 		if !uc.isBotMentioned(msg) {
+			slog.DebugContext(ctx, "BotUsecase.ProcessMessage: bot not mentioned in group, skipping", slog.String("chat_id", chatID))
 			return nil
 		}
+		slog.DebugContext(ctx, "BotUsecase.ProcessMessage: bot mentioned in group", slog.String("chat_id", chatID))
 	}
 
 	text := uc.stripBotMention(msg.Text)
@@ -100,6 +111,7 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 
 	// Input filter — detect prompt injection attempts.
 	if isPromptInjection(text) {
+		slog.WarnContext(ctx, "BotUsecase.ProcessMessage: prompt injection detected", slog.String("chat_id", chatID), slog.Int64("from_id", msg.From.ID))
 		_ = uc.telegram.SetReaction(ctx, chatID, msgID, "🤔")
 		_ = uc.telegram.SendMessage(ctx, chatID, deflectionResponse())
 		return nil
@@ -108,25 +120,30 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 	// Look up linked user.
 	link, err := uc.links.GetByTelegramUserID(ctx, msg.From.ID)
 	if err != nil {
+		slog.WarnContext(ctx, "BotUsecase.ProcessMessage: user not linked", slog.Int64("telegram_user_id", msg.From.ID), slog.String("error", err.Error()))
 		_ = uc.telegram.SendMessage(ctx, chatID, llm.UnlinkedUser.Pick())
 		return nil //nolint:nilerr // unlinked user is not an error
 	}
+	slog.InfoContext(ctx, "BotUsecase.ProcessMessage: user linked", slog.String("user_id", link.UserID), slog.Int64("telegram_user_id", msg.From.ID))
 
 	// Handle file attachments (PDF, DOCX, XLSX, MD, TXT, CSV).
 	if msg.Document != nil {
+		slog.InfoContext(ctx, "BotUsecase.ProcessMessage: file attachment", slog.String("file_name", msg.Document.FileName), slog.String("mime_type", msg.Document.MimeType), slog.Int64("file_size", msg.Document.FileSize))
 		return uc.handleFileUpload(ctx, msg, chatID, link.UserID)
 	}
 
 	// Check for active session — continue the flow.
 	session, err := uc.sessions.GetActive(ctx, chatID)
 	if err == nil {
+		slog.InfoContext(ctx, "BotUsecase.ProcessMessage: continuing active session", slog.String("session_id", session.ID), slog.String("intent", string(session.Intent)), slog.Int("step", session.Step))
 		return uc.handleSessionMessage(ctx, session, text, link.UserID)
 	}
 
 	// Resolve LLM configuration.
+	slog.DebugContext(ctx, "BotUsecase.ProcessMessage: resolving LLM parser", slog.String("user_id", link.UserID))
 	parser, err := uc.resolveLLMParser(ctx, link.UserID)
 	if err != nil {
-		slog.ErrorContext(ctx, "BotUsecase.ProcessMessage: failed to resolve LLM parser", slog.String("error", err.Error()))
+		slog.ErrorContext(ctx, "BotUsecase.ProcessMessage: failed to resolve LLM parser", slog.String("user_id", link.UserID), slog.String("error", err.Error()))
 		_ = uc.telegram.SendMessage(ctx, chatID, llm.LLMConfigError.Pick())
 		return nil
 	}
@@ -137,19 +154,26 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 		for _, m := range memories {
 			history = append(history, string(m.Role)+": "+m.Content)
 		}
+		slog.DebugContext(ctx, "BotUsecase.ProcessMessage: loaded memory", slog.Int("entries", len(memories)))
+	} else {
+		slog.WarnContext(ctx, "BotUsecase.ProcessMessage: failed to load memory", slog.String("user_id", link.UserID), slog.String("error", err.Error()))
 	}
 
 	// Parse intent (LLM #1 — classifier, no personality).
+	slog.InfoContext(ctx, "BotUsecase.ProcessMessage: calling ParseIntent", slog.String("text", text))
 	intent, err := parser.ParseIntent(ctx, text, history)
 	if err != nil {
-		slog.ErrorContext(ctx, "BotUsecase.ProcessMessage: ParseIntent failed", slog.String("error", err.Error()))
+		slog.ErrorContext(ctx, "BotUsecase.ProcessMessage: ParseIntent failed", slog.String("chat_id", chatID), slog.String("text", text), slog.String("error", err.Error()))
 		_ = uc.telegram.SetReaction(ctx, chatID, msgID, "🤔")
 		_ = uc.telegram.SendMessage(ctx, chatID, llm.LLMError.Pick())
 		return nil
 	}
 
+	slog.InfoContext(ctx, "BotUsecase.ProcessMessage: intent parsed", slog.String("intent", string(intent.Type)), slog.Float64("confidence", intent.Confidence))
+
 	// Low confidence — react and ask to rephrase.
 	if intent.Confidence < 0.5 {
+		slog.InfoContext(ctx, "BotUsecase.ProcessMessage: low confidence, asking to rephrase", slog.Float64("confidence", intent.Confidence))
 		_ = uc.telegram.SetReaction(ctx, chatID, msgID, "🤔")
 		_ = uc.telegram.SendMessage(ctx, chatID, llm.LowConfidence.Pick())
 		return nil
@@ -161,9 +185,10 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 	}
 
 	// Execute intent.
+	slog.InfoContext(ctx, "BotUsecase.ProcessMessage: executing intent", slog.String("intent", string(intent.Type)), slog.String("user_id", link.UserID))
 	result, keyboard, err := uc.executor.Execute(ctx, intent, link.UserID)
 	if err != nil {
-		slog.ErrorContext(ctx, "BotUsecase.ProcessMessage: Execute failed", slog.String("error", err.Error()))
+		slog.ErrorContext(ctx, "BotUsecase.ProcessMessage: Execute failed", slog.String("intent", string(intent.Type)), slog.String("user_id", link.UserID), slog.String("error", err.Error()))
 		_ = uc.telegram.SendMessage(ctx, chatID, llm.ExecuteError.Pick())
 		return nil
 	}
@@ -176,6 +201,7 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 	}
 
 	// Send response.
+	slog.InfoContext(ctx, "BotUsecase.ProcessMessage: sending response", slog.String("chat_id", chatID), slog.Bool("has_keyboard", keyboard != nil), slog.Int("result_len", len(result)))
 	if keyboard != nil {
 		_ = uc.telegram.SendInlineKeyboard(ctx, chatID, result, keyboard)
 	} else {
@@ -231,6 +257,7 @@ func fileTypeFromName(name string) string {
 
 // handleFileUpload downloads a file from Telegram and starts a session to upload it to a project.
 func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Message, chatID, userID string) error {
+	slog.InfoContext(ctx, "BotUsecase.handleFileUpload: start", slog.String("chat_id", chatID), slog.String("user_id", userID), slog.String("file_name", msg.Document.FileName))
 	doc := msg.Document
 	msgID := msg.MessageID
 
@@ -240,6 +267,7 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 		fileType = fileTypeFromName(doc.FileName)
 	}
 	if fileType == "" {
+		slog.WarnContext(ctx, "BotUsecase.handleFileUpload: unsupported file type", slog.String("file_name", doc.FileName), slog.String("mime_type", doc.MimeType))
 		_ = uc.telegram.SetReaction(ctx, chatID, msgID, "🤔")
 		_ = uc.telegram.SendMessage(ctx, chatID, "Этот формат я пока не поддерживаю. Скинь PDF, DOCX, XLSX, MD, TXT или CSV!")
 		return nil
@@ -249,6 +277,7 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 	const maxBotFileSize = 50 << 20 // 50MB, same as document module
 
 	if doc.FileSize > maxBotFileSize {
+		slog.WarnContext(ctx, "BotUsecase.handleFileUpload: file too large", slog.String("file_name", doc.FileName), slog.Int64("file_size", doc.FileSize))
 		_ = uc.telegram.SendMessage(ctx, chatID, "Файл слишком большой (макс 50MB)")
 		return nil
 	}
@@ -266,7 +295,13 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 
 	// No project context — ask which project to upload to.
 	projects, _, err := uc.executor.projects.ListByUser(ctx, userID, 20, 0)
-	if err != nil || len(projects) == 0 {
+	if err != nil {
+		slog.ErrorContext(ctx, "BotUsecase.handleFileUpload: ListByUser failed", slog.String("user_id", userID), slog.String("error", err.Error()))
+		_ = uc.telegram.SendMessage(ctx, chatID, "У тебя пока нет проектов. Сначала создай проект!")
+		return nil
+	}
+	if len(projects) == 0 {
+		slog.InfoContext(ctx, "BotUsecase.handleFileUpload: no projects for user", slog.String("user_id", userID))
 		_ = uc.telegram.SendMessage(ctx, chatID, "У тебя пока нет проектов. Сначала создай проект!")
 		return nil
 	}
@@ -300,6 +335,7 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 
 // uploadFile downloads the file from Telegram and uploads it to the project.
 func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID string, doc *telegram.Document, fileType string) error {
+	slog.InfoContext(ctx, "BotUsecase.uploadFile: start", slog.String("chat_id", chatID), slog.String("project_id", projectID), slog.String("file_name", doc.FileName), slog.String("file_type", fileType))
 	// Get download URL.
 	fileURL, err := uc.telegram.GetFileURL(ctx, doc.FileID)
 	if err != nil {
@@ -330,6 +366,7 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 		return nil
 	}
 
+	slog.InfoContext(ctx, "BotUsecase.uploadFile: success", slog.String("file_name", doc.FileName), slog.String("project_id", projectID))
 	_ = uc.telegram.SendMarkdown(ctx, chatID, fmt.Sprintf("Файл *%s* загружен в проект! 📎", doc.FileName))
 
 	// Save to memory.
@@ -340,14 +377,22 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 
 // saveMemory stores user message and bot response in conversation history.
 func (uc *BotUsecase) saveMemory(ctx context.Context, userID, chatID, userMsg, botResponse, intent string) {
+	slog.DebugContext(ctx, "BotUsecase.saveMemory: start", slog.String("user_id", userID), slog.String("chat_id", chatID), slog.String("intent", intent))
 	if userEntry, err := domain.NewMemoryEntry(userID, chatID, domain.MemoryRoleUser, userMsg, intent); err == nil {
-		_ = uc.memory.Save(ctx, userEntry)
+		if err := uc.memory.Save(ctx, userEntry); err != nil {
+			slog.ErrorContext(ctx, "BotUsecase.saveMemory: failed to save user entry", slog.String("user_id", userID), slog.String("error", err.Error()))
+		}
 	}
 	if estiEntry, err := domain.NewMemoryEntry(userID, chatID, domain.MemoryRoleEsti, botResponse, intent); err == nil {
-		_ = uc.memory.Save(ctx, estiEntry)
+		if err := uc.memory.Save(ctx, estiEntry); err != nil {
+			slog.ErrorContext(ctx, "BotUsecase.saveMemory: failed to save esti entry", slog.String("user_id", userID), slog.String("error", err.Error()))
+		}
 	}
 	// Trim old memories.
-	_ = uc.memory.DeleteOld(ctx, userID, memoryLimit)
+	if err := uc.memory.DeleteOld(ctx, userID, memoryLimit); err != nil {
+		slog.WarnContext(ctx, "BotUsecase.saveMemory: failed to trim old memories", slog.String("user_id", userID), slog.String("error", err.Error()))
+	}
+	slog.DebugContext(ctx, "BotUsecase.saveMemory: done", slog.String("user_id", userID))
 }
 
 // ProcessCallback handles an incoming Telegram callback query update.
@@ -367,9 +412,17 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		payload = parts[1]
 	}
 
+	slog.InfoContext(ctx, "BotUsecase.ProcessCallback: incoming",
+		slog.String("chat_id", chatID),
+		slog.String("action", action),
+		slog.String("payload", payload),
+		slog.Int64("from_id", cb.From.ID),
+	)
+
 	// Look up linked user.
 	link, err := uc.links.GetByTelegramUserID(ctx, cb.From.ID)
 	if err != nil {
+		slog.WarnContext(ctx, "BotUsecase.ProcessCallback: user not linked", slog.Int64("telegram_user_id", cb.From.ID), slog.String("error", err.Error()))
 		_ = uc.telegram.SendMessage(ctx, chatID, "Привяжите аккаунт в настройках EstimatePro.")
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 		return nil //nolint:nilerr // unlinked user is not an error
@@ -377,6 +430,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 
 	switch {
 	case action == "cancel":
+		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: cancel action", slog.String("chat_id", chatID))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr == nil {
 			_ = uc.sessions.Cancel(ctx, session.ID)
@@ -385,31 +439,37 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "Отменено")
 
 	case action == "confirm":
+		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: confirm action", slog.String("chat_id", chatID))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr != nil {
+			slog.WarnContext(ctx, "BotUsecase.ProcessCallback: confirm but no active session", slog.String("chat_id", chatID), slog.String("error", sErr.Error()))
 			_ = uc.telegram.SendMessage(ctx, chatID, "Нет активной сессии.")
 			_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 			return nil
 		}
 
 		if err := uc.executeSessionAction(ctx, session, link.UserID); err != nil {
-			slog.ErrorContext(ctx, "BotUsecase.ProcessCallback: executeSessionAction failed", slog.String("error", err.Error()))
+			slog.ErrorContext(ctx, "BotUsecase.ProcessCallback: executeSessionAction failed", slog.String("session_id", session.ID), slog.String("error", err.Error()))
 			_ = uc.telegram.SendMessage(ctx, chatID, "Ошибка при выполнении действия.")
 		} else {
+			slog.InfoContext(ctx, "BotUsecase.ProcessCallback: session action completed", slog.String("session_id", session.ID))
 			_ = uc.telegram.SendMessage(ctx, chatID, "Готово!")
 		}
 		_ = uc.sessions.Complete(ctx, session.ID)
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 
 	case strings.HasPrefix(action, "sel_"):
+		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: selection action", slog.String("action", action), slog.String("payload", payload))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr != nil {
+			slog.WarnContext(ctx, "BotUsecase.ProcessCallback: selection but no active session", slog.String("chat_id", chatID), slog.String("error", sErr.Error()))
 			_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 			return nil
 		}
 
 		// Handle file upload project selection.
 		if session.Intent == domain.IntentUploadDocument && action == "sel_proj" {
+			slog.InfoContext(ctx, "BotUsecase.ProcessCallback: file upload project selected", slog.String("project_id", payload))
 			state, _ := uc.sessions.GetState(session)
 			fileSize, _ := strconv.ParseInt(state["file_size"], 10, 64)
 			doc := &telegram.Document{
@@ -423,10 +483,12 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		}
 
 		selKey := strings.TrimPrefix(action, "sel_")
+		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: advancing session", slog.String("sel_key", selKey), slog.String("payload", payload))
 		_ = uc.sessions.Advance(ctx, session, map[string]string{selKey: payload})
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 
 	default:
+		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: unknown action", slog.String("action", action))
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 		_ = payload // suppress unused warning for default case
 	}
@@ -437,6 +499,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 // handleSessionMessage processes a text message within an active session flow.
 func (uc *BotUsecase) handleSessionMessage(ctx context.Context, session *domain.BotSession, text string, userID string) error {
 	chatID := session.ChatID
+	slog.InfoContext(ctx, "BotUsecase.handleSessionMessage", slog.String("session_id", session.ID), slog.String("intent", string(session.Intent)), slog.Int("step", session.Step), slog.String("text", text))
 
 	switch session.Intent {
 	case domain.IntentCreateProject:
@@ -444,16 +507,18 @@ func (uc *BotUsecase) handleSessionMessage(ctx context.Context, session *domain.
 	case domain.IntentAddMember:
 		return uc.handleAddMemberSession(ctx, session, text, userID, chatID)
 	default:
-		// For unhandled session intents, advance with raw text.
+		slog.DebugContext(ctx, "BotUsecase.handleSessionMessage: unhandled intent, advancing with raw text", slog.String("intent", string(session.Intent)))
 		return uc.sessions.Advance(ctx, session, map[string]string{"input": text})
 	}
 }
 
 func (uc *BotUsecase) handleCreateProjectSession(ctx context.Context, session *domain.BotSession, text, userID, chatID string) error {
+	slog.DebugContext(ctx, "BotUsecase.handleCreateProjectSession", slog.Int("step", session.Step), slog.String("text", text))
 	switch session.Step {
 	case 0:
 		// Step 0: we got the project name.
 		if err := uc.sessions.Advance(ctx, session, map[string]string{"name": text}); err != nil {
+			slog.ErrorContext(ctx, "BotUsecase.handleCreateProjectSession: Advance failed", slog.String("error", err.Error()))
 			return fmt.Errorf("BotUsecase.handleCreateProjectSession: %w", err)
 		}
 		_ = uc.telegram.SendMessage(ctx, chatID, "Отлично! Теперь введите описание проекта (или 'пропустить').")
@@ -462,6 +527,7 @@ func (uc *BotUsecase) handleCreateProjectSession(ctx context.Context, session *d
 		// Step 1: we got the description — create the project.
 		state, err := uc.sessions.GetState(session)
 		if err != nil {
+			slog.ErrorContext(ctx, "BotUsecase.handleCreateProjectSession: GetState failed", slog.String("error", err.Error()))
 			return fmt.Errorf("BotUsecase.handleCreateProjectSession: %w", err)
 		}
 		description := text
@@ -469,24 +535,30 @@ func (uc *BotUsecase) handleCreateProjectSession(ctx context.Context, session *d
 			description = ""
 		}
 
+		slog.InfoContext(ctx, "BotUsecase.handleCreateProjectSession: creating project", slog.String("name", state["name"]), slog.String("user_id", userID))
 		projectID, err := uc.executor.projects.Create(ctx, "", state["name"], description, userID)
 		if err != nil {
+			slog.ErrorContext(ctx, "BotUsecase.handleCreateProjectSession: Create failed", slog.String("name", state["name"]), slog.String("error", err.Error()))
 			_ = uc.telegram.SendMessage(ctx, chatID, "Ошибка при создании проекта.")
 			return fmt.Errorf("BotUsecase.handleCreateProjectSession: %w", err)
 		}
 
+		slog.InfoContext(ctx, "BotUsecase.handleCreateProjectSession: project created", slog.String("project_id", projectID), slog.String("name", state["name"]))
 		_ = uc.telegram.SendMarkdown(ctx, chatID, fmt.Sprintf("Проект *%s* создан\\! ID: `%s`", state["name"], projectID))
 		return uc.sessions.Complete(ctx, session.ID)
 	default:
+		slog.WarnContext(ctx, "BotUsecase.handleCreateProjectSession: unexpected step, completing", slog.Int("step", session.Step))
 		return uc.sessions.Complete(ctx, session.ID)
 	}
 }
 
 func (uc *BotUsecase) handleAddMemberSession(ctx context.Context, session *domain.BotSession, text, userID, chatID string) error {
+	slog.DebugContext(ctx, "BotUsecase.handleAddMemberSession", slog.Int("step", session.Step), slog.String("text", text))
 	switch session.Step {
 	case 0:
 		// Step 0: got project ID.
 		if err := uc.sessions.Advance(ctx, session, map[string]string{"project_id": text}); err != nil {
+			slog.ErrorContext(ctx, "BotUsecase.handleAddMemberSession: Advance failed", slog.String("error", err.Error()))
 			return fmt.Errorf("BotUsecase.handleAddMemberSession: %w", err)
 		}
 		_ = uc.telegram.SendMessage(ctx, chatID, "Введите email участника.")
@@ -495,42 +567,55 @@ func (uc *BotUsecase) handleAddMemberSession(ctx context.Context, session *domai
 		// Step 1: got email — add member.
 		state, err := uc.sessions.GetState(session)
 		if err != nil {
+			slog.ErrorContext(ctx, "BotUsecase.handleAddMemberSession: GetState failed", slog.String("error", err.Error()))
 			return fmt.Errorf("BotUsecase.handleAddMemberSession: %w", err)
 		}
 
+		slog.InfoContext(ctx, "BotUsecase.handleAddMemberSession: adding member", slog.String("project_id", state["project_id"]), slog.String("email", text))
 		if err := uc.executor.members.AddByEmail(ctx, state["project_id"], text, "developer", userID); err != nil {
+			slog.ErrorContext(ctx, "BotUsecase.handleAddMemberSession: AddByEmail failed", slog.String("project_id", state["project_id"]), slog.String("email", text), slog.String("error", err.Error()))
 			_ = uc.telegram.SendMessage(ctx, chatID, "Ошибка при добавлении участника.")
 			return fmt.Errorf("BotUsecase.handleAddMemberSession: %w", err)
 		}
 
+		slog.InfoContext(ctx, "BotUsecase.handleAddMemberSession: member added", slog.String("email", text), slog.String("project_id", state["project_id"]))
 		_ = uc.telegram.SendMessage(ctx, chatID, "Участник добавлен!")
 		return uc.sessions.Complete(ctx, session.ID)
 	default:
+		slog.WarnContext(ctx, "BotUsecase.handleAddMemberSession: unexpected step, completing", slog.Int("step", session.Step))
 		return uc.sessions.Complete(ctx, session.ID)
 	}
 }
 
 // executeSessionAction runs the final action for a confirmed session.
 func (uc *BotUsecase) executeSessionAction(ctx context.Context, session *domain.BotSession, userID string) error {
+	slog.InfoContext(ctx, "BotUsecase.executeSessionAction", slog.String("session_id", session.ID), slog.String("intent", string(session.Intent)), slog.String("user_id", userID))
 	state, err := uc.sessions.GetState(session)
 	if err != nil {
+		slog.ErrorContext(ctx, "BotUsecase.executeSessionAction: GetState failed", slog.String("session_id", session.ID), slog.String("error", err.Error()))
 		return fmt.Errorf("BotUsecase.executeSessionAction: %w", err)
 	}
 
 	switch session.Intent {
 	case domain.IntentCreateProject:
+		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: creating project", slog.String("name", state["name"]))
 		_, err = uc.executor.projects.Create(ctx, "", state["name"], state["description"], userID)
 	case domain.IntentAddMember:
+		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: adding member", slog.String("project_id", state["project_id"]), slog.String("email", state["email"]))
 		err = uc.executor.members.AddByEmail(ctx, state["project_id"], state["email"], state["role"], userID)
 	case domain.IntentRemoveMember:
+		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: removing member", slog.String("project_id", state["project_id"]), slog.String("user_id", state["user_id"]))
 		err = uc.executor.members.Remove(ctx, state["project_id"], state["user_id"], userID)
 	default:
+		slog.WarnContext(ctx, "BotUsecase.executeSessionAction: unknown intent", slog.String("intent", string(session.Intent)))
 		return nil
 	}
 
 	if err != nil {
+		slog.ErrorContext(ctx, "BotUsecase.executeSessionAction: action failed", slog.String("intent", string(session.Intent)), slog.String("error", err.Error()))
 		return fmt.Errorf("BotUsecase.executeSessionAction: %w", err)
 	}
+	slog.InfoContext(ctx, "BotUsecase.executeSessionAction: success", slog.String("intent", string(session.Intent)))
 	return nil
 }
 
@@ -584,20 +669,24 @@ func (uc *BotUsecase) resolveLLMParser(ctx context.Context, userID string) (doma
 	// Try user-specific config first.
 	cfg, err := uc.llmConfigs.GetByUserID(ctx, userID)
 	if err == nil {
+		slog.InfoContext(ctx, "BotUsecase.resolveLLMParser: using user config", slog.String("user_id", userID), slog.String("provider", string(cfg.Provider)), slog.String("model", cfg.Model))
 		return uc.llmFactory(cfg.Provider, cfg.APIKey, cfg.Model, cfg.BaseURL)
 	}
 
 	// Try system-level config.
 	cfg, err = uc.llmConfigs.GetSystem(ctx)
 	if err == nil {
+		slog.InfoContext(ctx, "BotUsecase.resolveLLMParser: using system config", slog.String("provider", string(cfg.Provider)), slog.String("model", cfg.Model))
 		return uc.llmFactory(cfg.Provider, cfg.APIKey, cfg.Model, cfg.BaseURL)
 	}
 
 	// Fall back to environment config.
 	if uc.envLLM.Provider == "" {
+		slog.ErrorContext(ctx, "BotUsecase.resolveLLMParser: no LLM config found", slog.String("user_id", userID))
 		return nil, domain.ErrNoLLMConfig
 	}
 
+	slog.InfoContext(ctx, "BotUsecase.resolveLLMParser: using env config", slog.String("provider", uc.envLLM.Provider), slog.String("model", uc.envLLM.Model))
 	return uc.llmFactory(
 		domain.LLMProviderType(uc.envLLM.Provider),
 		uc.envLLM.APIKey,

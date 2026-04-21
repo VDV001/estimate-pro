@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
@@ -40,6 +41,7 @@ func NewIntentExecutor(
 
 // Execute processes an intent and returns a response message, optional keyboard, and error.
 func (e *IntentExecutor) Execute(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	slog.InfoContext(ctx, "IntentExecutor.Execute", slog.String("intent", string(intent.Type)), slog.String("user_id", userID), slog.Any("params", intent.Params))
 	switch intent.Type {
 	case domain.IntentListProjects:
 		return e.listProjects(ctx, userID)
@@ -65,10 +67,13 @@ func (e *IntentExecutor) Execute(ctx context.Context, intent *domain.Intent, use
 }
 
 func (e *IntentExecutor) listProjects(ctx context.Context, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	slog.DebugContext(ctx, "IntentExecutor.listProjects", slog.String("user_id", userID))
 	projects, total, err := e.projects.ListByUser(ctx, userID, 50, 0)
 	if err != nil {
+		slog.ErrorContext(ctx, "IntentExecutor.listProjects: ListByUser failed", slog.String("error", err.Error()))
 		return "", nil, fmt.Errorf("IntentExecutor.Execute: %w", err)
 	}
+	slog.DebugContext(ctx, "IntentExecutor.listProjects: found", slog.Int("total", total))
 
 	if total == 0 {
 		return "У вас пока нет проектов. Создайте первый с помощью команды «создай проект».", nil, nil
@@ -89,6 +94,7 @@ func (e *IntentExecutor) listProjects(ctx context.Context, userID string) (strin
 }
 
 func (e *IntentExecutor) getProjectStatus(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	slog.DebugContext(ctx, "IntentExecutor.getProjectStatus", slog.String("project_name", intent.Params["project_name"]))
 	projectName := intent.Params["project_name"]
 	if projectName == "" {
 		return "Укажите название проекта, чтобы получить его статус.", nil, nil
@@ -181,8 +187,10 @@ func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent)
 		return "Выберите проект, чтобы просмотреть участников.", nil, nil
 	}
 
+	slog.DebugContext(ctx, "IntentExecutor.listMembers", slog.String("project_id", projectID))
 	members, err := e.members.List(ctx, projectID)
 	if err != nil {
+		slog.ErrorContext(ctx, "IntentExecutor.listMembers: List failed", slog.String("project_id", projectID), slog.String("error", err.Error()))
 		return "", nil, fmt.Errorf("IntentExecutor.Execute: %w", err)
 	}
 
@@ -205,15 +213,18 @@ func (e *IntentExecutor) getAggregated(ctx context.Context, intent *domain.Inten
 		return "Выберите проект, чтобы получить агрегированную оценку.", nil, nil
 	}
 
+	slog.DebugContext(ctx, "IntentExecutor.getAggregated", slog.String("project_id", projectID))
 	result, err := e.estimations.GetAggregated(ctx, projectID)
 	if err != nil {
+		slog.ErrorContext(ctx, "IntentExecutor.getAggregated: GetAggregated failed", slog.String("project_id", projectID), slog.String("error", err.Error()))
 		return "", nil, fmt.Errorf("IntentExecutor.Execute: %w", err)
 	}
 
 	return result, nil, nil
 }
 
-func (e *IntentExecutor) forgotPassword(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+func (e *IntentExecutor) forgotPassword(ctx context.Context, _ *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	slog.DebugContext(ctx, "IntentExecutor.forgotPassword", slog.String("user_id", userID))
 	if e.passwords == nil {
 		return "Password reset is not configured.", nil, nil
 	}

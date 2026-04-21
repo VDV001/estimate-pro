@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -38,14 +39,18 @@ func NewFormatter(provider domain.LLMProviderType, apiKey, model, baseURL string
 
 // Format rephrases a raw action result in Esti's personality.
 func (f *Formatter) Format(ctx context.Context, actionResult string, intentType domain.IntentType) (string, error) {
+	slog.InfoContext(ctx, "Formatter.Format: start", slog.String("provider", string(f.provider)), slog.String("intent", string(intentType)), slog.Int("result_len", len(actionResult)))
+	start := time.Now()
 	userPrompt := fmt.Sprintf("Действие: %s\nРезультат:\n%s", intentType, actionResult)
 
 	text, err := f.callLLM(ctx, formatterPrompt, userPrompt)
 	if err != nil {
 		// Formatting failed — return raw result, don't break the flow.
+		slog.WarnContext(ctx, "Formatter.Format: LLM call failed, returning raw result", slog.String("error", err.Error()), slog.Duration("elapsed", time.Since(start)))
 		return actionResult, nil //nolint:nilerr
 	}
 
+	slog.InfoContext(ctx, "Formatter.Format: done", slog.Int("formatted_len", len(text)), slog.Duration("elapsed", time.Since(start)))
 	return text, nil
 }
 
@@ -92,6 +97,7 @@ func (f *Formatter) callLLM(ctx context.Context, sysPrompt, userMsg string) (str
 }
 
 func (f *Formatter) callClaude(ctx context.Context, sysPrompt, userMsg string) (string, error) {
+	slog.DebugContext(ctx, "Formatter.callClaude", slog.String("model", f.model))
 	url := "https://api.anthropic.com/v1/messages"
 	body := map[string]any{
 		"model":      f.model,
@@ -134,6 +140,7 @@ func (f *Formatter) callOpenAICompat(ctx context.Context, sysPrompt, userMsg str
 	if f.provider == domain.ProviderGrok {
 		url = "https://api.x.ai/v1/chat/completions"
 	}
+	slog.DebugContext(ctx, "Formatter.callOpenAICompat", slog.String("model", f.model), slog.String("provider", string(f.provider)))
 	body := map[string]any{
 		"model":      f.model,
 		"max_tokens": 512,
@@ -174,6 +181,7 @@ func (f *Formatter) callOpenAICompat(ctx context.Context, sysPrompt, userMsg str
 }
 
 func (f *Formatter) callOllama(ctx context.Context, sysPrompt, userMsg string) (string, error) {
+	slog.DebugContext(ctx, "Formatter.callOllama", slog.String("model", f.model), slog.String("base_url", f.baseURL))
 	url := f.baseURL + "/api/chat"
 	body := map[string]any{
 		"model":  f.model,

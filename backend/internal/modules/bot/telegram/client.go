@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -33,12 +34,14 @@ func NewClient(token string) *Client {
 
 // SendMessage sends a plain text message to a chat.
 func (c *Client) SendMessage(ctx context.Context, chatID, text string) error {
+	slog.DebugContext(ctx, "telegram.SendMessage", slog.String("chat_id", chatID), slog.Int("text_len", len(text)))
 	req := SendMessageRequest{
 		ChatID: chatID,
 		Text:   text,
 	}
 	_, err := c.doRequest(ctx, "sendMessage", req)
 	if err != nil {
+		slog.ErrorContext(ctx, "telegram.SendMessage failed", slog.String("chat_id", chatID), slog.String("error", err.Error()))
 		return fmt.Errorf("telegram.Client.SendMessage: %w", err)
 	}
 	return nil
@@ -46,6 +49,7 @@ func (c *Client) SendMessage(ctx context.Context, chatID, text string) error {
 
 // SendMarkdown sends a Markdown-formatted message to a chat.
 func (c *Client) SendMarkdown(ctx context.Context, chatID, text string) error {
+	slog.DebugContext(ctx, "telegram.SendMarkdown", slog.String("chat_id", chatID), slog.Int("text_len", len(text)))
 	req := SendMessageRequest{
 		ChatID:    chatID,
 		Text:      text,
@@ -53,6 +57,7 @@ func (c *Client) SendMarkdown(ctx context.Context, chatID, text string) error {
 	}
 	_, err := c.doRequest(ctx, "sendMessage", req)
 	if err != nil {
+		slog.ErrorContext(ctx, "telegram.SendMarkdown failed", slog.String("chat_id", chatID), slog.String("error", err.Error()))
 		return fmt.Errorf("telegram.Client.SendMarkdown: %w", err)
 	}
 	return nil
@@ -60,6 +65,7 @@ func (c *Client) SendMarkdown(ctx context.Context, chatID, text string) error {
 
 // SendInlineKeyboard sends a message with an inline keyboard to a chat.
 func (c *Client) SendInlineKeyboard(ctx context.Context, chatID, text string, keyboard [][]domain.InlineKeyboardButton) error {
+	slog.DebugContext(ctx, "telegram.SendInlineKeyboard", slog.String("chat_id", chatID), slog.Int("rows", len(keyboard)))
 	// Convert domain buttons to telegram wire format.
 	tgKeyboard := make([][]InlineKeyboardButton, len(keyboard))
 	for i, row := range keyboard {
@@ -80,6 +86,7 @@ func (c *Client) SendInlineKeyboard(ctx context.Context, chatID, text string, ke
 	}
 	_, err := c.doRequest(ctx, "sendMessage", req)
 	if err != nil {
+		slog.ErrorContext(ctx, "telegram.SendInlineKeyboard failed", slog.String("chat_id", chatID), slog.String("error", err.Error()))
 		return fmt.Errorf("telegram.Client.SendInlineKeyboard: %w", err)
 	}
 	return nil
@@ -87,6 +94,7 @@ func (c *Client) SendInlineKeyboard(ctx context.Context, chatID, text string, ke
 
 // AnswerCallbackQuery answers an incoming callback query.
 func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackQueryID, text string) error {
+	slog.DebugContext(ctx, "telegram.AnswerCallbackQuery", slog.String("callback_query_id", callbackQueryID))
 	payload := struct {
 		CallbackQueryID string `json:"callback_query_id"`
 		Text            string `json:"text,omitempty"`
@@ -96,6 +104,7 @@ func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackQueryID, text 
 	}
 	_, err := c.doRequest(ctx, "answerCallbackQuery", payload)
 	if err != nil {
+		slog.ErrorContext(ctx, "telegram.AnswerCallbackQuery failed", slog.String("callback_query_id", callbackQueryID), slog.String("error", err.Error()))
 		return fmt.Errorf("telegram.Client.AnswerCallbackQuery: %w", err)
 	}
 	return nil
@@ -103,6 +112,7 @@ func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackQueryID, text 
 
 // SetReaction sets an emoji reaction on a message.
 func (c *Client) SetReaction(ctx context.Context, chatID string, messageID int64, emoji string) error {
+	slog.DebugContext(ctx, "telegram.SetReaction", slog.String("chat_id", chatID), slog.Int64("message_id", messageID), slog.String("emoji", emoji))
 	payload := struct {
 		ChatID    string `json:"chat_id"`
 		MessageID int64  `json:"message_id"`
@@ -120,6 +130,7 @@ func (c *Client) SetReaction(ctx context.Context, chatID string, messageID int64
 	}
 	_, err := c.doRequest(ctx, "setMessageReaction", payload)
 	if err != nil {
+		slog.WarnContext(ctx, "telegram.SetReaction failed", slog.String("chat_id", chatID), slog.String("error", err.Error()))
 		return fmt.Errorf("telegram.Client.SetReaction: %w", err)
 	}
 	return nil
@@ -127,6 +138,7 @@ func (c *Client) SetReaction(ctx context.Context, chatID string, messageID int64
 
 // GetFileURL retrieves the download URL for a file by its file ID.
 func (c *Client) GetFileURL(ctx context.Context, fileID string) (string, error) {
+	slog.DebugContext(ctx, "telegram.GetFileURL", slog.String("file_id", fileID))
 	payload := struct {
 		FileID string `json:"file_id"`
 	}{
@@ -145,11 +157,13 @@ func (c *Client) GetFileURL(ctx context.Context, fileID string) (string, error) 
 	}
 
 	downloadURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", c.token, fileResp.FilePath)
+	slog.DebugContext(ctx, "telegram.GetFileURL resolved", slog.String("file_id", fileID), slog.String("file_path", fileResp.FilePath))
 	return downloadURL, nil
 }
 
 // DownloadFile downloads a file from the given URL and returns its content.
 func (c *Client) DownloadFile(ctx context.Context, url string) ([]byte, error) {
+	slog.DebugContext(ctx, "telegram.DownloadFile", slog.String("url", url))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("telegram.Client.DownloadFile: create request: %w", err)
@@ -169,6 +183,7 @@ func (c *Client) DownloadFile(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("telegram.Client.DownloadFile: read body: %w", err)
 	}
+	slog.DebugContext(ctx, "telegram.DownloadFile complete", slog.Int("bytes", len(data)))
 	return data, nil
 }
 
@@ -203,6 +218,7 @@ func (c *Client) doRequest(ctx context.Context, method string, payload any) (*AP
 	}
 
 	if !apiResp.OK {
+		slog.WarnContext(ctx, "telegram.doRequest: API error", slog.String("method", method), slog.String("description", apiResp.Description))
 		return nil, fmt.Errorf("API error: %s", apiResp.Description)
 	}
 

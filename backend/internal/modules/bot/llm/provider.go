@@ -6,6 +6,7 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
@@ -13,6 +14,7 @@ import (
 
 // NewParser creates an LLMParser for the given provider type.
 func NewParser(provider domain.LLMProviderType, apiKey, model, baseURL string) (domain.LLMParser, error) {
+	slog.Info("llm.NewParser", slog.String("provider", string(provider)), slog.String("model", model))
 	switch provider {
 	case domain.ProviderClaude:
 		return NewClaudeParser(apiKey, model), nil
@@ -23,6 +25,7 @@ func NewParser(provider domain.LLMProviderType, apiKey, model, baseURL string) (
 	case domain.ProviderOllama:
 		return NewOllamaParser(baseURL, model), nil
 	default:
+		slog.Error("llm.NewParser: unsupported provider", slog.String("provider", string(provider)))
 		return nil, fmt.Errorf("NewParser: %w: %s", domain.ErrUnsupportedProvider, provider)
 	}
 }
