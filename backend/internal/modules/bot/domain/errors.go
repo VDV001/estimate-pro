@@ -41,4 +41,7 @@ var (
 
 	// ErrEmptyContent is returned when a memory entry content is empty.
 	ErrEmptyContent = errors.New("bot: memory content must be non-empty")
+
+	// ErrUserNotFound is returned when no EstimatePro user matches the given Telegram ID.
+	ErrUserNotFound = errors.New("bot: no user found for telegram id")
 )

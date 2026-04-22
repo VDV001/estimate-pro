@@ -154,6 +154,39 @@ func (r *PostgresUserLinkRepository) Delete(ctx context.Context, telegramUserID 
 	return nil
 }
 
+// --- PostgresUserResolver ---
+
+// PostgresUserResolver implements domain.UserResolver by matching telegram_user_id
+// against users.telegram_chat_id for auto-linking.
+type PostgresUserResolver struct {
+	pool *pgxpool.Pool
+}
+
+// NewPostgresUserResolver creates a new PostgresUserResolver.
+func NewPostgresUserResolver(pool *pgxpool.Pool) *PostgresUserResolver {
+	return &PostgresUserResolver{pool: pool}
+}
+
+// ResolveByTelegramID finds the EstimatePro user whose telegram_chat_id matches
+// the given Telegram user ID. In private chats, chat ID equals user ID.
+func (r *PostgresUserResolver) ResolveByTelegramID(ctx context.Context, telegramUserID int64) (string, error) {
+	slog.DebugContext(ctx, "bot.repo.UserResolver.ResolveByTelegramID", slog.Int64("telegram_user_id", telegramUserID))
+	chatIDStr := fmt.Sprintf("%d", telegramUserID)
+	var userID string
+	err := r.pool.QueryRow(ctx,
+		`SELECT id FROM users WHERE telegram_chat_id = $1`, chatIDStr).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		slog.DebugContext(ctx, "bot.repo.UserResolver.ResolveByTelegramID: no matching user", slog.Int64("telegram_user_id", telegramUserID))
+		return "", domain.ErrUserNotFound
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.UserResolver.ResolveByTelegramID: query failed", slog.Int64("telegram_user_id", telegramUserID), slog.String("error", err.Error()))
+		return "", fmt.Errorf("bot.repo.UserResolver.ResolveByTelegramID: %w", err)
+	}
+	slog.DebugContext(ctx, "bot.repo.UserResolver.ResolveByTelegramID: found", slog.String("user_id", userID), slog.Int64("telegram_user_id", telegramUserID))
+	return userID, nil
+}
+
 // --- PostgresLLMConfigRepository ---
 
 // PostgresLLMConfigRepository implements domain.LLMConfigRepository using PostgreSQL.

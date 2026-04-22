@@ -25,6 +25,13 @@ type UserLinkRepository interface {
 	Delete(ctx context.Context, telegramUserID int64) error
 }
 
+// UserResolver finds an EstimatePro user ID by Telegram user ID.
+// Used for auto-linking: when a Telegram user writes to the bot for the first time,
+// the resolver checks if their telegram_user_id matches a users.telegram_chat_id.
+type UserResolver interface {
+	ResolveByTelegramID(ctx context.Context, telegramUserID int64) (userID string, err error)
+}
+
 // LLMConfigRepository manages LLM provider configurations.
 type LLMConfigRepository interface {
 	GetSystem(ctx context.Context) (*LLMConfig, error)

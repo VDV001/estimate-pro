@@ -6,10 +6,12 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/llm"
@@ -32,17 +34,18 @@ var botNameAliases = []string{
 
 // BotUsecase orchestrates message processing, intent resolution, and session management.
 type BotUsecase struct {
-	sessions    *SessionManager
-	links       domain.UserLinkRepository
-	llmConfigs  domain.LLMConfigRepository
-	memory      domain.MemoryRepository
-	prefs       domain.UserPrefsRepository
-	telegram    domain.TelegramClient
-	executor    *IntentExecutor
-	llmFactory  func(domain.LLMProviderType, string, string, string) (domain.LLMParser, error)
-	envLLM      EnvLLMConfig
-	botUsername string
-	formatter   *llm.Formatter // LLM #2 — personality formatter
+	sessions     *SessionManager
+	links        domain.UserLinkRepository
+	userResolver domain.UserResolver
+	llmConfigs   domain.LLMConfigRepository
+	memory       domain.MemoryRepository
+	prefs        domain.UserPrefsRepository
+	telegram     domain.TelegramClient
+	executor     *IntentExecutor
+	llmFactory   func(domain.LLMProviderType, string, string, string) (domain.LLMParser, error)
+	envLLM       EnvLLMConfig
+	botUsername  string
+	formatter    *llm.Formatter // LLM #2 — personality formatter
 }
 
 const memoryLimit = 20 // last N messages to keep per user
@@ -51,6 +54,7 @@ const memoryLimit = 20 // last N messages to keep per user
 func New(
 	sessionRepo domain.SessionRepository,
 	links domain.UserLinkRepository,
+	userResolver domain.UserResolver,
 	llmConfigs domain.LLMConfigRepository,
 	memoryRepo domain.MemoryRepository,
 	prefsRepo domain.UserPrefsRepository,
@@ -65,17 +69,18 @@ func New(
 	passwords domain.PasswordResetManager,
 ) *BotUsecase {
 	return &BotUsecase{
-		sessions:    NewSessionManager(sessionRepo),
-		links:       links,
-		llmConfigs:  llmConfigs,
-		memory:      memoryRepo,
-		prefs:       prefsRepo,
-		telegram:    tg,
-		executor:    NewIntentExecutor(projects, members, estimations, documents, passwords),
-		llmFactory:  llmFactory,
-		envLLM:      envLLM,
-		botUsername: botUsername,
-		formatter:   llm.NewFormatter(domain.LLMProviderType(envLLM.Provider), envLLM.APIKey, envLLM.Model, envLLM.BaseURL),
+		sessions:     NewSessionManager(sessionRepo),
+		links:        links,
+		userResolver: userResolver,
+		llmConfigs:   llmConfigs,
+		memory:       memoryRepo,
+		prefs:        prefsRepo,
+		telegram:     tg,
+		executor:     NewIntentExecutor(projects, members, estimations, documents, passwords),
+		llmFactory:   llmFactory,
+		envLLM:       envLLM,
+		botUsername:  botUsername,
+		formatter:    llm.NewFormatter(domain.LLMProviderType(envLLM.Provider), envLLM.APIKey, envLLM.Model, envLLM.BaseURL),
 	}
 }
 
@@ -117,8 +122,11 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 		return nil
 	}
 
-	// Look up linked user.
+	// Look up linked user, auto-link if possible.
 	link, err := uc.links.GetByTelegramUserID(ctx, msg.From.ID)
+	if errors.Is(err, domain.ErrUserNotLinked) {
+		link, err = uc.tryAutoLink(ctx, msg.From)
+	}
 	if err != nil {
 		slog.WarnContext(ctx, "BotUsecase.ProcessMessage: user not linked", slog.Int64("telegram_user_id", msg.From.ID), slog.String("error", err.Error()))
 		_ = uc.telegram.SendMessage(ctx, chatID, llm.UnlinkedUser.Pick())
@@ -419,8 +427,11 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		slog.Int64("from_id", cb.From.ID),
 	)
 
-	// Look up linked user.
+	// Look up linked user, auto-link if possible.
 	link, err := uc.links.GetByTelegramUserID(ctx, cb.From.ID)
+	if errors.Is(err, domain.ErrUserNotLinked) {
+		link, err = uc.tryAutoLink(ctx, cb.From)
+	}
 	if err != nil {
 		slog.WarnContext(ctx, "BotUsecase.ProcessCallback: user not linked", slog.Int64("telegram_user_id", cb.From.ID), slog.String("error", err.Error()))
 		_ = uc.telegram.SendMessage(ctx, chatID, "Привяжите аккаунт в настройках EstimatePro.")
@@ -620,6 +631,46 @@ func (uc *BotUsecase) executeSessionAction(ctx context.Context, session *domain.
 }
 
 // isBotMentioned checks if the bot is mentioned in a group message.
+// tryAutoLink attempts to auto-link a Telegram user to their EstimatePro account
+// by matching the Telegram user ID against users.telegram_chat_id in the database.
+func (uc *BotUsecase) tryAutoLink(ctx context.Context, from *telegram.User) (*domain.BotUserLink, error) {
+	slog.InfoContext(ctx, "BotUsecase.tryAutoLink: attempting auto-link",
+		slog.Int64("telegram_user_id", from.ID),
+		slog.String("telegram_username", from.Username),
+	)
+
+	userID, err := uc.userResolver.ResolveByTelegramID(ctx, from.ID)
+	if err != nil {
+		slog.DebugContext(ctx, "BotUsecase.tryAutoLink: resolver failed",
+			slog.Int64("telegram_user_id", from.ID),
+			slog.String("error", err.Error()),
+		)
+		return nil, fmt.Errorf("BotUsecase.tryAutoLink: %w", err)
+	}
+
+	link := &domain.BotUserLink{
+		TelegramUserID:   from.ID,
+		UserID:           userID,
+		TelegramUsername: from.Username,
+		LinkedAt:         time.Now(),
+	}
+	if err := uc.links.Link(ctx, link); err != nil {
+		slog.ErrorContext(ctx, "BotUsecase.tryAutoLink: failed to persist link",
+			slog.Int64("telegram_user_id", from.ID),
+			slog.String("user_id", userID),
+			slog.String("error", err.Error()),
+		)
+		return nil, fmt.Errorf("BotUsecase.tryAutoLink: %w", err)
+	}
+
+	slog.InfoContext(ctx, "BotUsecase.tryAutoLink: auto-linked user",
+		slog.Int64("telegram_user_id", from.ID),
+		slog.String("user_id", userID),
+		slog.String("telegram_username", from.Username),
+	)
+	return link, nil
+}
+
 func (uc *BotUsecase) isBotMentioned(msg *telegram.Message) bool {
 	lower := strings.ToLower(msg.Text)
 
