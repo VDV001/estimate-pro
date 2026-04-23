@@ -243,33 +243,46 @@ func (m *mockUserPrefsRepo) Get(_ context.Context, _ string) (*domain.UserPrefs,
 }
 func (m *mockUserPrefsRepo) Upsert(_ context.Context, _ *domain.UserPrefs) error { return nil }
 
+type mockUserResolver struct {
+	ResolveByTelegramIDFn func(ctx context.Context, telegramUserID int64) (string, error)
+}
+
+func (m *mockUserResolver) ResolveByTelegramID(ctx context.Context, telegramUserID int64) (string, error) {
+	if m.ResolveByTelegramIDFn != nil {
+		return m.ResolveByTelegramIDFn(ctx, telegramUserID)
+	}
+	return "", domain.ErrUserNotFound
+}
+
 type testBotDeps struct {
-	sessionRepo *mockSessionRepo
-	linkRepo    *mockUserLinkRepo
-	llmCfgRepo  *mockLLMConfigRepo
-	memoryRepo  *mockMemoryRepo
-	prefsRepo   *mockUserPrefsRepo
-	tgClient    *mockTelegramClient
-	parser      *mockLLMParser
-	projects    *mockProjectManager
-	members     *mockMemberManager
-	estimations *mockEstimationManager
-	documents   *mockDocumentManager
+	sessionRepo  *mockSessionRepo
+	linkRepo     *mockUserLinkRepo
+	userResolver *mockUserResolver
+	llmCfgRepo   *mockLLMConfigRepo
+	memoryRepo   *mockMemoryRepo
+	prefsRepo    *mockUserPrefsRepo
+	tgClient     *mockTelegramClient
+	parser       *mockLLMParser
+	projects     *mockProjectManager
+	members      *mockMemberManager
+	estimations  *mockEstimationManager
+	documents    *mockDocumentManager
 }
 
 func newTestBotDeps() *testBotDeps {
 	return &testBotDeps{
-		sessionRepo: &mockSessionRepo{},
-		linkRepo:    &mockUserLinkRepo{},
-		llmCfgRepo:  &mockLLMConfigRepo{},
-		memoryRepo:  &mockMemoryRepo{},
-		prefsRepo:   &mockUserPrefsRepo{},
-		tgClient:    &mockTelegramClient{},
-		parser:      &mockLLMParser{},
-		projects:    &mockProjectManager{},
-		members:     &mockMemberManager{},
-		estimations: &mockEstimationManager{},
-		documents:   &mockDocumentManager{},
+		sessionRepo:  &mockSessionRepo{},
+		linkRepo:     &mockUserLinkRepo{},
+		userResolver: &mockUserResolver{},
+		llmCfgRepo:   &mockLLMConfigRepo{},
+		memoryRepo:   &mockMemoryRepo{},
+		prefsRepo:    &mockUserPrefsRepo{},
+		tgClient:     &mockTelegramClient{},
+		parser:       &mockLLMParser{},
+		projects:     &mockProjectManager{},
+		members:      &mockMemberManager{},
+		estimations:  &mockEstimationManager{},
+		documents:    &mockDocumentManager{},
 	}
 }
 
@@ -278,6 +291,7 @@ func (d *testBotDeps) build() *BotUsecase {
 	return New(
 		d.sessionRepo,
 		d.linkRepo,
+		d.userResolver,
 		d.llmCfgRepo,
 		d.memoryRepo,
 		d.prefsRepo,
@@ -333,6 +347,96 @@ func TestProcessMessage_UnlinkedUser(t *testing.T) {
 	}
 	if !strings.Contains(sentText, "привяжи") && !strings.Contains(sentText, "Привяжи") && !strings.Contains(sentText, "EstimatePro") {
 		t.Errorf("expected link prompt, got: %s", sentText)
+	}
+}
+
+func TestProcessMessage_AutoLink_Success(t *testing.T) {
+	deps := newTestBotDeps()
+
+	// User not in bot_user_links yet.
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return nil, domain.ErrUserNotLinked
+	}
+
+	// Resolver finds user by telegram_chat_id.
+	deps.userResolver.ResolveByTelegramIDFn = func(_ context.Context, telegramUserID int64) (string, error) {
+		if telegramUserID == 12345 {
+			return "user-auto-1", nil
+		}
+		return "", domain.ErrUserNotFound
+	}
+
+	// Track that Link was called to persist the auto-link.
+	var linkedUserID string
+	deps.linkRepo.LinkFn = func(_ context.Context, link *domain.BotUserLink) error {
+		linkedUserID = link.UserID
+		return nil
+	}
+
+	deps.parser.ParseIntentFn = func(_ context.Context, _ string, _ []string) (*domain.Intent, error) {
+		return &domain.Intent{Type: domain.IntentHelp, Confidence: 0.95}, nil
+	}
+
+	responded := false
+	deps.tgClient.SendMessageFn = func(_ context.Context, _ string, _ string) error {
+		responded = true
+		return nil
+	}
+	deps.tgClient.SendMarkdownFn = func(_ context.Context, _ string, _ string) error {
+		responded = true
+		return nil
+	}
+
+	uc := deps.build()
+
+	err := uc.ProcessMessage(t.Context(), &tg.Update{
+		Message: &tg.Message{
+			From:      &tg.User{ID: 12345, Username: "daniil"},
+			Chat:      &tg.Chat{ID: 12345, Type: "private"},
+			Text:      "привет",
+			MessageID: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if linkedUserID != "user-auto-1" {
+		t.Errorf("expected auto-link to user-auto-1, got: %s", linkedUserID)
+	}
+	if !responded {
+		t.Error("expected bot to respond after auto-link")
+	}
+}
+
+func TestProcessMessage_AutoLink_ResolverNotFound(t *testing.T) {
+	deps := newTestBotDeps()
+
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return nil, domain.ErrUserNotLinked
+	}
+	// Default mock resolver returns ErrUserNotFound.
+
+	var sentText string
+	deps.tgClient.SendMessageFn = func(_ context.Context, _ string, text string) error {
+		sentText = text
+		return nil
+	}
+
+	uc := deps.build()
+
+	err := uc.ProcessMessage(t.Context(), &tg.Update{
+		Message: &tg.Message{
+			From:      &tg.User{ID: 99999},
+			Chat:      &tg.Chat{ID: 99999, Type: "private"},
+			Text:      "привет",
+			MessageID: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sentText, "привяжи") && !strings.Contains(sentText, "Привяжи") && !strings.Contains(sentText, "EstimatePro") {
+		t.Errorf("expected link prompt when resolver fails, got: %s", sentText)
 	}
 }
 
@@ -1286,6 +1390,7 @@ func TestProcessMessage_ResolveLLMParser_NoConfig(t *testing.T) {
 	uc := New(
 		deps.sessionRepo,
 		deps.linkRepo,
+		deps.userResolver,
 		deps.llmCfgRepo,
 		deps.memoryRepo,
 		deps.prefsRepo,

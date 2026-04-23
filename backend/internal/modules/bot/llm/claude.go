@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
 )
@@ -56,6 +58,8 @@ type claudeResponse struct {
 
 // ParseIntent parses a user message into a structured Intent using Claude.
 func (p *ClaudeParser) ParseIntent(ctx context.Context, message string, history []string) (*domain.Intent, error) {
+	slog.InfoContext(ctx, "ClaudeParser.ParseIntent: start", slog.String("model", p.model), slog.Int("msg_len", len(message)), slog.Int("history_len", len(history)))
+	start := time.Now()
 	userPrompt := BuildUserPrompt(message, history)
 
 	reqBody := claudeRequest{
@@ -84,6 +88,7 @@ func (p *ClaudeParser) ParseIntent(ctx context.Context, message string, history 
 
 	resp, err := p.client.Do(req)
 	if err != nil {
+		slog.ErrorContext(ctx, "ClaudeParser.ParseIntent: HTTP request failed", slog.String("error", err.Error()), slog.Duration("elapsed", time.Since(start)))
 		return nil, fmt.Errorf("ClaudeParser.ParseIntent: send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -93,24 +98,33 @@ func (p *ClaudeParser) ParseIntent(ctx context.Context, message string, history 
 		return nil, fmt.Errorf("ClaudeParser.ParseIntent: read response: %w", err)
 	}
 
+	slog.InfoContext(ctx, "ClaudeParser.ParseIntent: API responded", slog.Int("status", resp.StatusCode), slog.Int("body_len", len(respBody)), slog.Duration("elapsed", time.Since(start)))
+
 	if resp.StatusCode != http.StatusOK {
+		slog.ErrorContext(ctx, "ClaudeParser.ParseIntent: non-200 status", slog.Int("status", resp.StatusCode), slog.String("body", string(respBody)))
 		return nil, fmt.Errorf("ClaudeParser.ParseIntent: API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var claudeResp claudeResponse
 	if err := json.Unmarshal(respBody, &claudeResp); err != nil {
+		slog.ErrorContext(ctx, "ClaudeParser.ParseIntent: unmarshal failed", slog.String("error", err.Error()), slog.String("body", string(respBody)))
 		return nil, fmt.Errorf("ClaudeParser.ParseIntent: unmarshal response: %w", err)
 	}
 
 	if len(claudeResp.Content) == 0 {
+		slog.ErrorContext(ctx, "ClaudeParser.ParseIntent: empty content in response")
 		return nil, fmt.Errorf("ClaudeParser.ParseIntent: empty content in response")
 	}
 
+	slog.DebugContext(ctx, "ClaudeParser.ParseIntent: raw LLM output", slog.String("text", claudeResp.Content[0].Text))
+
 	intent, err := parseIntentResponse([]byte(claudeResp.Content[0].Text))
 	if err != nil {
+		slog.ErrorContext(ctx, "ClaudeParser.ParseIntent: parse intent JSON failed", slog.String("error", err.Error()), slog.String("raw", claudeResp.Content[0].Text))
 		return nil, fmt.Errorf("ClaudeParser.ParseIntent: %w", err)
 	}
 
+	slog.InfoContext(ctx, "ClaudeParser.ParseIntent: done", slog.String("intent", string(intent.Type)), slog.Float64("confidence", intent.Confidence), slog.Duration("elapsed", time.Since(start)))
 	intent.RawText = message
 	return intent, nil
 }

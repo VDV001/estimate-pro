@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.10.0-blue)
+![Version](https://img.shields.io/badge/version-0.11.1-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,16 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.10.0`**
+**Текущая версия: `0.11.1`**
 
 ### Changelog
+
+#### v0.11.1 (2026-04-23)
+- Конфигурируемый LOG_LEVEL из ENV (debug/info/warn/error)
+
+#### v0.11.0 (2026-04-22)
+- Автолинковка Telegram-пользователей: бот автоматически привязывает аккаунт при первом сообщении по telegram_chat_id из профиля
+- Comprehensive slog logging по всему модулю бота (142 вызова в 13 файлах): handler, usecase, LLM-провайдеры, telegram client, repository
 
 #### v0.10.0 (2026-04-17)
 - DDD-конструкторы для всех 13 domain entities с централизованной валидацией инвариантов

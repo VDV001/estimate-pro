@@ -4,6 +4,7 @@
 package usecase
 
 import (
+	"log/slog"
 	"math/rand/v2"
 	"strings"
 
@@ -15,6 +16,7 @@ func isPromptInjection(text string) bool {
 	lower := strings.ToLower(text)
 	for _, pattern := range llm.InputFilterPatterns() {
 		if strings.Contains(lower, pattern) {
+			slog.Warn("isPromptInjection: matched", slog.String("pattern", pattern), slog.Int("text_len", len(text)))
 			return true
 		}
 	}

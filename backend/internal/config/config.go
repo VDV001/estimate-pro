@@ -2,22 +2,24 @@ package config
 
 import (
 	"cmp"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 )
 
 type Config struct {
-	ServerPort     string
-	DatabaseURL    string
-	RedisURL       string
-	AllowedOrigins []string
-	S3             S3Config
-	JWT            JWTConfig
-	Composio       ComposioConfig
-	OAuth          OAuthConfig
-	TelegramBot    TelegramBotConfig
-	LLM            LLMDefaultConfig
+	ServerPort      string
+	DatabaseURL     string
+	RedisURL        string
+	AllowedOrigins  []string
+	LogLevel        slog.Level
+	S3              S3Config
+	JWT             JWTConfig
+	Composio        ComposioConfig
+	OAuth           OAuthConfig
+	TelegramBot     TelegramBotConfig
+	LLM             LLMDefaultConfig
 	FrontendBaseURL string
 }
 
@@ -65,6 +67,7 @@ type LLMDefaultConfig struct {
 func Load() Config {
 	return Config{
 		ServerPort:     cmp.Or(os.Getenv("SERVER_PORT"), "8080"),
+		LogLevel:       parseLogLevel(os.Getenv("LOG_LEVEL")),
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
 		RedisURL:       cmp.Or(os.Getenv("REDIS_URL"), "redis://localhost:6379"),
 		AllowedOrigins: parseOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
@@ -119,6 +122,19 @@ func parseOrigins(s string) []string {
 		}
 	}
 	return origins
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 func parseDuration(s string, fallback time.Duration) time.Duration {

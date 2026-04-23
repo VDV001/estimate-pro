@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,6 +28,7 @@ func NewPostgresSessionRepository(pool *pgxpool.Pool) *PostgresSessionRepository
 }
 
 func (r *PostgresSessionRepository) Create(ctx context.Context, session *domain.BotSession) error {
+	slog.DebugContext(ctx, "bot.repo.Session.Create", slog.String("id", session.ID), slog.String("chat_id", session.ChatID), slog.String("intent", string(session.Intent)))
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO bot_sessions (id, chat_id, user_id, intent, state, step, expires_at, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -109,6 +111,7 @@ func (r *PostgresUserLinkRepository) Link(ctx context.Context, link *domain.BotU
 }
 
 func (r *PostgresUserLinkRepository) GetByTelegramUserID(ctx context.Context, telegramUserID int64) (*domain.BotUserLink, error) {
+	slog.DebugContext(ctx, "bot.repo.UserLink.GetByTelegramUserID", slog.Int64("telegram_user_id", telegramUserID))
 	row := r.pool.QueryRow(ctx,
 		`SELECT telegram_user_id, user_id, COALESCE(telegram_username, ''), linked_at
 		 FROM bot_user_links WHERE telegram_user_id = $1`, telegramUserID)
@@ -116,11 +119,14 @@ func (r *PostgresUserLinkRepository) GetByTelegramUserID(ctx context.Context, te
 	l := &domain.BotUserLink{}
 	err := row.Scan(&l.TelegramUserID, &l.UserID, &l.TelegramUsername, &l.LinkedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
+		slog.DebugContext(ctx, "bot.repo.UserLink.GetByTelegramUserID: not linked", slog.Int64("telegram_user_id", telegramUserID))
 		return nil, domain.ErrUserNotLinked
 	}
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.UserLink.GetByTelegramUserID: query failed", slog.Int64("telegram_user_id", telegramUserID), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("bot.Repository.GetByTelegramUserID: %w", err)
 	}
+	slog.DebugContext(ctx, "bot.repo.UserLink.GetByTelegramUserID: found", slog.Int64("telegram_user_id", telegramUserID), slog.String("user_id", l.UserID))
 	return l, nil
 }
 
@@ -148,6 +154,39 @@ func (r *PostgresUserLinkRepository) Delete(ctx context.Context, telegramUserID 
 	return nil
 }
 
+// --- PostgresUserResolver ---
+
+// PostgresUserResolver implements domain.UserResolver by matching telegram_user_id
+// against users.telegram_chat_id for auto-linking.
+type PostgresUserResolver struct {
+	pool *pgxpool.Pool
+}
+
+// NewPostgresUserResolver creates a new PostgresUserResolver.
+func NewPostgresUserResolver(pool *pgxpool.Pool) *PostgresUserResolver {
+	return &PostgresUserResolver{pool: pool}
+}
+
+// ResolveByTelegramID finds the EstimatePro user whose telegram_chat_id matches
+// the given Telegram user ID. In private chats, chat ID equals user ID.
+func (r *PostgresUserResolver) ResolveByTelegramID(ctx context.Context, telegramUserID int64) (string, error) {
+	slog.DebugContext(ctx, "bot.repo.UserResolver.ResolveByTelegramID", slog.Int64("telegram_user_id", telegramUserID))
+	chatIDStr := fmt.Sprintf("%d", telegramUserID)
+	var userID string
+	err := r.pool.QueryRow(ctx,
+		`SELECT id FROM users WHERE telegram_chat_id = $1`, chatIDStr).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		slog.DebugContext(ctx, "bot.repo.UserResolver.ResolveByTelegramID: no matching user", slog.Int64("telegram_user_id", telegramUserID))
+		return "", domain.ErrUserNotFound
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.UserResolver.ResolveByTelegramID: query failed", slog.Int64("telegram_user_id", telegramUserID), slog.String("error", err.Error()))
+		return "", fmt.Errorf("bot.repo.UserResolver.ResolveByTelegramID: %w", err)
+	}
+	slog.DebugContext(ctx, "bot.repo.UserResolver.ResolveByTelegramID: found", slog.String("user_id", userID), slog.Int64("telegram_user_id", telegramUserID))
+	return userID, nil
+}
+
 // --- PostgresLLMConfigRepository ---
 
 // PostgresLLMConfigRepository implements domain.LLMConfigRepository using PostgreSQL.
@@ -161,6 +200,7 @@ func NewPostgresLLMConfigRepository(pool *pgxpool.Pool) *PostgresLLMConfigReposi
 }
 
 func (r *PostgresLLMConfigRepository) GetSystem(ctx context.Context) (*domain.LLMConfig, error) {
+	slog.DebugContext(ctx, "bot.repo.LLMConfig.GetSystem")
 	row := r.pool.QueryRow(ctx,
 		`SELECT id, COALESCE(user_id::text, ''), provider, COALESCE(api_key, ''), model, COALESCE(base_url, ''), created_at, updated_at
 		 FROM llm_configs WHERE user_id IS NULL`)
@@ -177,6 +217,7 @@ func (r *PostgresLLMConfigRepository) GetSystem(ctx context.Context) (*domain.LL
 }
 
 func (r *PostgresLLMConfigRepository) GetByUserID(ctx context.Context, userID string) (*domain.LLMConfig, error) {
+	slog.DebugContext(ctx, "bot.repo.LLMConfig.GetByUserID", slog.String("user_id", userID))
 	row := r.pool.QueryRow(ctx,
 		`SELECT id, COALESCE(user_id::text, ''), provider, COALESCE(api_key, ''), model, COALESCE(base_url, ''), created_at, updated_at
 		 FROM llm_configs WHERE user_id = $1`, userID)
@@ -226,9 +267,11 @@ func NewPostgresMemoryRepository(pool *pgxpool.Pool) *PostgresMemoryRepository {
 }
 
 func (r *PostgresMemoryRepository) Save(ctx context.Context, entry *domain.MemoryEntry) error {
+	slog.DebugContext(ctx, "bot.repo.Memory.Save", slog.String("user_id", entry.UserID), slog.String("role", string(entry.Role)), slog.String("intent", entry.Intent))
 	query := `INSERT INTO bot_memory (id, user_id, chat_id, role, content, intent, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
 	_, err := r.pool.Exec(ctx, query, entry.ID, entry.UserID, entry.ChatID, entry.Role, entry.Content, nilIfEmpty(entry.Intent), entry.CreatedAt)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.Memory.Save: failed", slog.String("user_id", entry.UserID), slog.String("error", err.Error()))
 		return fmt.Errorf("bot.MemoryRepository.Save: %w", err)
 	}
 	return nil

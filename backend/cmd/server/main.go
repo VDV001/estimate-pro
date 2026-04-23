@@ -66,10 +66,10 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	slog.SetDefault(logger)
-
 	cfg := config.Load()
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	slog.SetDefault(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -132,6 +132,7 @@ func main() {
 	// Bot module repositories
 	botSessionRepo := botRepo.NewPostgresSessionRepository(pool)
 	botLinkRepo := botRepo.NewPostgresUserLinkRepository(pool)
+	botUserResolver := botRepo.NewPostgresUserResolver(pool)
 	botLLMConfigRepo := botRepo.NewPostgresLLMConfigRepository(pool)
 	botMemoryRepo := botRepo.NewPostgresMemoryRepository(pool)
 	botPrefsRepo := botRepo.NewPostgresUserPrefsRepository(pool)
@@ -221,6 +222,7 @@ func main() {
 	botUC := botUsecase.New(
 		botSessionRepo,
 		botLinkRepo,
+		botUserResolver,
 		botLLMConfigRepo,
 		botMemoryRepo,
 		botPrefsRepo,
