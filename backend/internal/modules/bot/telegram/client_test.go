@@ -6,11 +6,12 @@ package telegram
 import (
 	"encoding/json"
 	"io"
-
-	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+
+	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
 )
 
 func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
@@ -289,5 +290,104 @@ func TestGetFileURL_Success(t *testing.T) {
 	want := "https://api.telegram.org/file/bottest-token/documents/file_0.pdf"
 	if url != want {
 		t.Errorf("url = %q, want %q", url, want)
+	}
+}
+
+// --- Issue #14: retry transient errors ---
+
+func TestDoRequest_RetriesOnServerError(t *testing.T) {
+	var attempts atomic.Int32
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n <= 2 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"ok":false,"description":"Internal Server Error"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{}}`))
+	})
+
+	err := client.SendMessage(t.Context(), "123", "hello")
+	if err != nil {
+		t.Fatalf("expected success after retries, got: %v", err)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("attempts = %d, want 3", got)
+	}
+}
+
+func TestDoRequest_RetriesOnHTTP429(t *testing.T) {
+	var attempts atomic.Int32
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"ok":false,"description":"Too Many Requests: retry after 1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{}}`))
+	})
+
+	err := client.SendMessage(t.Context(), "123", "hello")
+	if err != nil {
+		t.Fatalf("expected success after retry, got: %v", err)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Errorf("attempts = %d, want 2", got)
+	}
+}
+
+func TestDoRequest_NoRetryOn4xx(t *testing.T) {
+	var attempts atomic.Int32
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":false,"description":"Bad Request: chat not found"}`))
+	})
+
+	err := client.SendMessage(t.Context(), "123", "hello")
+	if err == nil {
+		t.Fatal("expected error on 4xx, got nil")
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("attempts = %d, want 1 (no retry on 4xx)", got)
+	}
+}
+
+func TestDoRequest_GivesUpAfterMaxRetries(t *testing.T) {
+	var attempts atomic.Int32
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"ok":false,"description":"Bad Gateway"}`))
+	})
+
+	err := client.SendMessage(t.Context(), "123", "hello")
+	if err == nil {
+		t.Fatal("expected error after max retries, got nil")
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("attempts = %d, want 3 (initial + 2 retries)", got)
+	}
+}
+
+// --- Issue #15: REACTION_INVALID should not be an error ---
+
+func TestSetReaction_InvalidReactionSilenced(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":false,"description":"Bad Request: REACTION_INVALID"}`))
+	})
+
+	err := client.SetReaction(t.Context(), "12345", 42, "💡")
+	if err != nil {
+		t.Errorf("REACTION_INVALID should be silenced, got: %v", err)
 	}
 }
