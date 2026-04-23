@@ -11,9 +11,16 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
+)
+
+const (
+	maxRetries   = 2 // up to 3 attempts total (initial + 2 retries)
+	baseBackoff  = 500 * time.Millisecond
 )
 
 // Client is a Telegram Bot API client.
@@ -130,6 +137,11 @@ func (c *Client) SetReaction(ctx context.Context, chatID string, messageID int64
 	}
 	_, err := c.doRequest(ctx, "setMessageReaction", payload)
 	if err != nil {
+		// REACTION_INVALID is expected in chats with restricted reactions — not an error.
+		if strings.Contains(err.Error(), "REACTION_INVALID") {
+			slog.DebugContext(ctx, "telegram.SetReaction: reaction not available in this chat", slog.String("chat_id", chatID), slog.String("emoji", emoji))
+			return nil
+		}
 		slog.WarnContext(ctx, "telegram.SetReaction failed", slog.String("chat_id", chatID), slog.String("error", err.Error()))
 		return fmt.Errorf("telegram.Client.SetReaction: %w", err)
 	}
@@ -188,39 +200,118 @@ func (c *Client) DownloadFile(ctx context.Context, url string) ([]byte, error) {
 }
 
 // doRequest marshals the payload, sends a POST request to the Telegram Bot API,
-// and returns the parsed API response.
+// and returns the parsed API response. Retries on transient errors (5xx, 429, network).
 func (c *Client) doRequest(ctx context.Context, method string, payload any) (*APIResponse, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
+	var lastErr error
+	for attempt := range maxRetries + 1 {
+		if attempt > 0 {
+			slog.WarnContext(ctx, "telegram.doRequest: retrying",
+				slog.String("method", method),
+				slog.Int("attempt", attempt+1),
+				slog.String("prev_error", lastErr.Error()),
+			)
+		}
+
+		var apiResp *APIResponse
+		var retryAfter time.Duration
+		apiResp, retryAfter, lastErr = c.doRequestOnce(ctx, method, body)
+		if lastErr == nil {
+			return apiResp, nil
+		}
+
+		// Don't retry on non-transient errors (4xx except 429).
+		if retryAfter < 0 {
+			return nil, lastErr
+		}
+
+		if attempt < maxRetries {
+			backoff := retryAfter
+			if backoff == 0 {
+				backoff = baseBackoff << attempt // 500ms, 1s
+			}
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+		}
+	}
+	return nil, lastErr
+}
+
+// doRequestOnce executes a single HTTP request. Returns:
+//   - response on success
+//   - retryAfter > 0 for 429 with Retry-After header
+//   - retryAfter == 0 for retryable errors (5xx, network)
+//   - retryAfter < 0 for non-retryable errors (4xx)
+func (c *Client) doRequestOnce(ctx context.Context, method string, body []byte) (*APIResponse, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/"+method, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, -1, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("execute request: %w", err)
+		// Network errors (TLS timeout, connection refused) are retryable.
+		return nil, 0, fmt.Errorf("execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// HTTP 5xx — retryable.
+	if resp.StatusCode >= 500 {
+		respBody, _ := io.ReadAll(resp.Body)
+		var apiResp APIResponse
+		if json.Unmarshal(respBody, &apiResp) == nil && apiResp.Description != "" {
+			slog.WarnContext(ctx, "telegram.doRequest: API error", slog.String("method", method), slog.String("description", apiResp.Description))
+			return nil, 0, fmt.Errorf("API error: %s", apiResp.Description)
+		}
+		return nil, 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	// HTTP 429 — retryable with Retry-After.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+		respBody, _ := io.ReadAll(resp.Body)
+		var apiResp APIResponse
+		if json.Unmarshal(respBody, &apiResp) == nil && apiResp.Description != "" {
+			slog.WarnContext(ctx, "telegram.doRequest: rate limited", slog.String("method", method), slog.Duration("retry_after", retryAfter))
+			return nil, retryAfter, fmt.Errorf("API error: %s", apiResp.Description)
+		}
+		return nil, retryAfter, fmt.Errorf("HTTP 429")
+	}
+
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, -1, fmt.Errorf("read response: %w", err)
 	}
 
 	var apiResp APIResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return nil, fmt.Errorf("unmarshal response: %w", err)
+		return nil, -1, fmt.Errorf("unmarshal response: %w", err)
 	}
 
 	if !apiResp.OK {
 		slog.WarnContext(ctx, "telegram.doRequest: API error", slog.String("method", method), slog.String("description", apiResp.Description))
-		return nil, fmt.Errorf("API error: %s", apiResp.Description)
+		return nil, -1, fmt.Errorf("API error: %s", apiResp.Description)
 	}
 
-	return &apiResp, nil
+	return &apiResp, 0, nil
+}
+
+// parseRetryAfter parses the Retry-After header value as seconds.
+func parseRetryAfter(s string) time.Duration {
+	if s == "" {
+		return baseBackoff
+	}
+	sec, err := strconv.Atoi(s)
+	if err != nil {
+		return baseBackoff
+	}
+	return time.Duration(sec) * time.Second
 }

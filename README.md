@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.11.1-blue)
+![Version](https://img.shields.io/badge/version-0.11.2-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,13 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.11.1`**
+**Текущая версия: `0.11.2`**
 
 ### Changelog
+
+#### v0.11.2 (2026-04-23)
+- Retry транзиентных ошибок Telegram API (5xx, 429, TLS timeout) — до 3 попыток с exponential backoff
+- REACTION_INVALID silenced — ожидаемая ситуация в чатах с ограниченными реакциями
 
 #### v0.11.1 (2026-04-23)
 - Конфигурируемый LOG_LEVEL из ENV (debug/info/warn/error)
