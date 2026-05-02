@@ -368,10 +368,17 @@ func TestExecute(t *testing.T) {
 			wantContains: []string{"числ"},
 		},
 		{
-			name: "SubmitEstimation_InvariantViolated",
+			// Verifies sentinel-error-mapping path specifically: params are
+			// syntactically valid (parseHours OK), executor reaches SubmitItem,
+			// mock returns ErrInvalidEstimationHours, executor maps to the
+			// invariant-message text. The "удовлетворять условию" substring
+			// is distinct from parseHours-failure ("числами") and from
+			// project-not-found / domain-not-identified texts, ensuring this
+			// test pins exactly the sentinel-mapping branch.
+			name: "SubmitEstimation_DomainInvalidHours",
 			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
 				"project_name": "Alpha", "task_name": "X",
-				"min_hours": "20", "likely_hours": "12", "max_hours": "8",
+				"min_hours": "1", "likely_hours": "2", "max_hours": "3",
 			}},
 			userID: "user-1",
 			projects: &mockProjectManager{
@@ -384,7 +391,7 @@ func TestExecute(t *testing.T) {
 					return domain.ErrInvalidEstimationHours
 				},
 			},
-			wantContains: []string{"min", "likely", "max"},
+			wantContains: []string{"удовлетворять"},
 		},
 		{
 			name: "RequestEstimation_FeatureNotImplemented",

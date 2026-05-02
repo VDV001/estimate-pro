@@ -1556,6 +1556,49 @@ func TestProcessCallback_UnlinkedUser(t *testing.T) {
 	}
 }
 
+// TestParseHours covers the parseHours helper extracted in #19 cleanup.
+// Helper is called from submitEstimation; covering it directly hardens
+// the contract independent of the larger TestExecute table — if someone
+// changes parseHours signature, this test pins behaviour explicitly.
+func TestParseHours(t *testing.T) {
+	tests := []struct {
+		name                                       string
+		minStr, likelyStr, maxStr                  string
+		wantOk                                     bool
+		wantMin, wantLikely, wantMax               float64
+	}{
+		{"all integer valid", "1", "2", "3", true, 1, 2, 3},
+		{"all decimal valid", "1.5", "2.25", "3.75", true, 1.5, 2.25, 3.75},
+		{"min not a number", "abc", "2", "3", false, 0, 2, 3},
+		{"likely not a number", "1", "xyz", "3", false, 1, 0, 3},
+		{"max not a number", "1", "2", "abc", false, 1, 2, 0},
+		{"empty min", "", "2", "3", false, 0, 2, 3},
+		{"all empty", "", "", "", false, 0, 0, 0},
+		{"negative allowed (domain validates)", "-1", "0", "1", true, -1, 0, 1},
+		{"min greater than max syntactically valid", "20", "12", "8", true, 20, 12, 8},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			minH, likelyH, maxH, ok := parseHours(tc.minStr, tc.likelyStr, tc.maxStr)
+			if ok != tc.wantOk {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOk)
+			}
+			if !tc.wantOk {
+				return // values are undefined when ok=false
+			}
+			if minH != tc.wantMin {
+				t.Errorf("minH = %v, want %v", minH, tc.wantMin)
+			}
+			if likelyH != tc.wantLikely {
+				t.Errorf("likelyH = %v, want %v", likelyH, tc.wantLikely)
+			}
+			if maxH != tc.wantMax {
+				t.Errorf("maxH = %v, want %v", maxH, tc.wantMax)
+			}
+		})
+	}
+}
+
 // TestParseCallbackData verifies that callback_data parsing handles both the
 // canonical "action:payload" format and legacy "cancel" without colon (kept
 // for backward-compatibility with old inline keyboards still in chat history).
