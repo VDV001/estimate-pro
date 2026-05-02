@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.12.0-blue)
+![Version](https://img.shields.io/badge/version-0.12.1-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,14 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.12.0`**
+**Текущая версия: `0.12.1`**
 
 ### Changelog
+
+#### v0.12.1 (2026-05-02)
+- audit(bot): callback completion flow audit (#21) — найдены 3 бага в multi-step flows
+- fix(bot): добавление участника снова работает — role-кнопки теперь отдают `sel_role:*` callback вместо `role:*`, который silent-ignored в ProcessCallback (#26)
+- chore: AddMember/RemoveMember executeSessionAction state-key mismatch + missing auto-execute зафиксированы как #27 для следующего PR
 
 #### v0.12.0 (2026-05-02)
 - feat(bot): реализованы все 4 ранее неработавших intents — classifier их распознавал, executor падал в default → unknown (#19)
