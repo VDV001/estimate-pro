@@ -1170,6 +1170,75 @@ func TestProcessCallback_Confirm(t *testing.T) {
 	}
 }
 
+// TestProcessCallback_Confirm_UpdateProject verifies that confirming an
+// active update_project session calls projects.Update with the resolved
+// project_id (looked up by project_name) and the new name/description.
+// See issue #19 — implementing all missing intents.
+func TestProcessCallback_Confirm_UpdateProject(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	stateJSON, _ := json.Marshal(map[string]string{
+		"project_name": "Alpha",
+		"new_name":     "Alpha-2",
+		"description":  "v2",
+	})
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return &domain.BotSession{
+			ID:        "ses-1",
+			ChatID:    "100",
+			UserID:    "user-1",
+			Intent:    domain.IntentUpdateProject,
+			State:     stateJSON,
+			ExpiresAt: time.Now().Add(5 * time.Minute),
+		}, nil
+	}
+	deps.projects.ListByUserFn = func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+		return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
+	}
+
+	var updatedProject bool
+	var capturedID, capturedName, capturedDesc string
+	deps.projects.UpdateFn = func(_ context.Context, projectID, name, description, _ string) error {
+		updatedProject = true
+		capturedID = projectID
+		capturedName = name
+		capturedDesc = description
+		return nil
+	}
+	deps.sessionRepo.DeleteFn = func(_ context.Context, _ string) error { return nil }
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, _ string) error { return nil }
+	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error { return nil }
+
+	uc := deps.build()
+
+	err := uc.ProcessCallback(t.Context(), &tg.Update{
+		CallbackQuery: &tg.CallbackQuery{
+			ID:      "cb-1",
+			From:    &tg.User{ID: 12345},
+			Message: &tg.Message{Chat: &tg.Chat{ID: 100, Type: "private"}},
+			Data:    "confirm:update_project",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !updatedProject {
+		t.Fatal("expected projects.Update to be called on confirm:update_project")
+	}
+	if capturedID != "p1" {
+		t.Errorf("Update called with project_id=%q, want p1", capturedID)
+	}
+	if capturedName != "Alpha-2" {
+		t.Errorf("Update called with name=%q, want Alpha-2", capturedName)
+	}
+	if capturedDesc != "v2" {
+		t.Errorf("Update called with description=%q, want v2", capturedDesc)
+	}
+}
+
 func TestProcessCallback_NilCallbackQuery(t *testing.T) {
 	deps := newTestBotDeps()
 	uc := deps.build()
