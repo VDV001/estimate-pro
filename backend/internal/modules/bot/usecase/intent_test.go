@@ -410,6 +410,70 @@ func TestExecute(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "RequestEstimation_Success",
+			intent: &domain.Intent{Type: domain.IntentRequestEstimation, Params: map[string]string{
+				"project_name": "Alpha", "task_name": "Auth",
+			}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
+				},
+			},
+			estimations: &mockEstimationManager{
+				requestEstimationFn: func(_ context.Context, projectID, uid, taskName string) error {
+					if projectID != "p1" || uid != "user-1" || taskName != "Auth" {
+						return errors.New("wrong args: " + projectID + "," + uid + "," + taskName)
+					}
+					return nil
+				},
+			},
+			wantContains: []string{"Auth", "Alpha", "запрос"},
+		},
+		{
+			name:         "RequestEstimation_NoProjectName",
+			intent:       &domain.Intent{Type: domain.IntentRequestEstimation, Params: map[string]string{"task_name": "Auth"}},
+			userID:       "user-1",
+			wantContains: []string{"Укажите", "проект"},
+		},
+		{
+			name:         "RequestEstimation_NoTaskName",
+			intent:       &domain.Intent{Type: domain.IntentRequestEstimation, Params: map[string]string{"project_name": "Alpha"}},
+			userID:       "user-1",
+			wantContains: []string{"задач"},
+		},
+		{
+			name: "RequestEstimation_ProjectNotFound",
+			intent: &domain.Intent{Type: domain.IntentRequestEstimation, Params: map[string]string{
+				"project_name": "Ghost", "task_name": "Auth",
+			}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{}, 0, nil
+				},
+			},
+			wantContains: []string{"Ghost", "не найден"},
+		},
+		{
+			name: "RequestEstimation_RequestError",
+			intent: &domain.Intent{Type: domain.IntentRequestEstimation, Params: map[string]string{
+				"project_name": "Alpha", "task_name": "Auth",
+			}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
+				},
+			},
+			estimations: &mockEstimationManager{
+				requestEstimationFn: func(_ context.Context, _, _, _ string) error {
+					return errors.New("notify dispatch failed")
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name:   "GetAggregated_Error",
 			intent: &domain.Intent{Type: domain.IntentGetAggregated, Params: map[string]string{"project_id": "p1"}},
 			userID: "user-1",
