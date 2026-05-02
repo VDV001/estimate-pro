@@ -3,21 +3,55 @@
 
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Callback protocol for Telegram inline-keyboard buttons.
 //
-// Callback data follows the convention "action:payload" (see ADR-011).
+// Callback data follows the convention "action:payload" (see ADR-011 / ADR-013).
 // Producer side (keyboard builders) calls the constructors below; parser
-// side (BotUsecase.ProcessCallback) compares the parsed action against the
-// action constants. Adding a new action prefix or selection key requires
-// touching both sides — keep the contract rooted in this file.
-const (
-	CallbackActionCancel  = "cancel"
-	CallbackActionConfirm = "confirm"
+// side (BotUsecase.ProcessCallback) routes via the typed CallbackAction
+// returned from ParseCallback. Adding a new action prefix or selection key
+// requires touching both sides — keep the contract rooted in this file.
 
-	CallbackPrefixSelect = "sel_"
+// CallbackPrefixSelect is the literal prefix shared by all selection actions
+// (e.g. "sel_proj", "sel_role"). Exported because the wire format is part of
+// the cross-version backward-compat contract.
+const CallbackPrefixSelect = "sel_"
+
+// CallbackAction is the parsed action portion of a callback_data string —
+// the substring before the first colon. Cancel and Confirm have fixed wire
+// values; select actions take the dynamic form CallbackPrefixSelect + key.
+type CallbackAction string
+
+const (
+	CallbackActionCancel  CallbackAction = "cancel"
+	CallbackActionConfirm CallbackAction = "confirm"
 )
+
+// IsCancel reports whether the action is the cancel sentinel.
+func (a CallbackAction) IsCancel() bool { return a == CallbackActionCancel }
+
+// IsConfirm reports whether the action is the confirm sentinel.
+func (a CallbackAction) IsConfirm() bool { return a == CallbackActionConfirm }
+
+// IsSelect reports whether the action is a selection action (sel_<key>).
+// Returns true even for unknown keys — use SelectKey().IsKnown() to gate.
+func (a CallbackAction) IsSelect() bool {
+	return strings.HasPrefix(string(a), CallbackPrefixSelect)
+}
+
+// SelectKey returns the CallbackKey embedded in a select action. Returns ""
+// for non-select actions. The returned key may be unknown — caller is
+// expected to call IsKnown() before treating it as authoritative.
+func (a CallbackAction) SelectKey() CallbackKey {
+	if !a.IsSelect() {
+		return ""
+	}
+	return CallbackKey(strings.TrimPrefix(string(a), CallbackPrefixSelect))
+}
 
 // CallbackKey is a whitelisted selection-key for SelectCallback / SelectAction.
 // New keys must be declared here and accepted by IsKnown — the constructors
@@ -42,7 +76,7 @@ func (k CallbackKey) IsKnown() bool {
 
 // CancelCallback returns the callback_data string for a "cancel" button.
 func CancelCallback() string {
-	return CallbackActionCancel + ":"
+	return string(CallbackActionCancel) + ":"
 }
 
 // ConfirmCallback returns the callback_data string for a "confirm" button
@@ -56,7 +90,7 @@ func ConfirmCallback(intent IntentType) string {
 	if !intent.IsValid() || intent == IntentUnknown {
 		panic(fmt.Sprintf("domain.ConfirmCallback: invalid IntentType %q", string(intent)))
 	}
-	return CallbackActionConfirm + ":" + string(intent)
+	return string(CallbackActionConfirm) + ":" + string(intent)
 }
 
 // SelectCallback returns the callback_data string for a selection button
@@ -76,9 +110,24 @@ func SelectCallback(key CallbackKey, value string) string {
 // useful for parser-side comparisons (e.g. action == SelectAction(CallbackKeyProject)).
 //
 // Panics on unknown CallbackKey for the same reason as SelectCallback.
-func SelectAction(key CallbackKey) string {
+func SelectAction(key CallbackKey) CallbackAction {
 	if !key.IsKnown() {
 		panic(fmt.Sprintf("domain.SelectAction: unknown CallbackKey %q", string(key)))
 	}
-	return CallbackPrefixSelect + string(key)
+	return CallbackAction(CallbackPrefixSelect + string(key))
+}
+
+// ParseCallback splits Telegram callback_data into its typed action and
+// raw payload using the "action:payload" convention (ADR-011).
+//
+// Backward-compatible: a legacy value without a colon yields the whole
+// string as action and empty payload — old inline keyboards still in chat
+// history continue to parse.
+func ParseCallback(data string) (action CallbackAction, payload string) {
+	parts := strings.SplitN(data, ":", 2)
+	action = CallbackAction(parts[0])
+	if len(parts) == 2 {
+		payload = parts[1]
+	}
+	return
 }
