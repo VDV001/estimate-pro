@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.11.2-blue)
+![Version](https://img.shields.io/badge/version-0.11.4-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,16 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.11.2`**
+**Текущая версия: `0.11.4`**
 
 ### Changelog
+
+#### v0.11.4 (2026-05-02)
+- fix(bot): команды «участники [проект]» и «оценка [проект]» из help снова работают по тексту — `listMembers`/`getAggregated` теперь резолвят project по имени через общий `findProjectByName` helper, а не падают на пустом `project_id` (#18)
+- refactor(bot): sentinel errors `ErrProjectNotIdentified`/`ErrProjectNotFound` в `bot/domain`, `getProjectStatus` мигрирован на тот же helper, `projectListLimit` константа
+
+#### v0.11.3 (2026-05-02)
+- fix(bot): унифицирован формат `callback_data` для кнопок «Отмена» — везде `"cancel:"` (action:payload convention). Парсер `parseCallbackData` сохраняет backward-compat для legacy `"cancel"` без двоеточия (#20)
 
 #### v0.11.2 (2026-04-23)
 - Retry транзиентных ошибок Telegram API (5xx, 429, TLS timeout) — до 3 попыток с exponential backoff
