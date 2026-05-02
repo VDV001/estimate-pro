@@ -70,6 +70,8 @@ func (e *IntentExecutor) Execute(ctx context.Context, intent *domain.Intent, use
 		return e.submitEstimation(ctx, intent, userID)
 	case domain.IntentRequestEstimation:
 		return e.requestEstimation(ctx, intent, userID)
+	case domain.IntentUploadDocument:
+		return e.uploadDocumentRequest(ctx, intent, userID)
 	case domain.IntentForgotPassword:
 		return e.forgotPassword(ctx, intent, userID)
 	case domain.IntentHelp:
@@ -296,6 +298,38 @@ func (e *IntentExecutor) requestEstimation(ctx context.Context, intent *domain.I
 	return fmt.Sprintf("Запрос оценки задачи «%s» в проекте «%s» отправлен команде. 📨", taskName, p.Name), nil, nil
 }
 
+// uploadDocumentRequest handles the text version of the upload_document intent
+// (e.g. «загрузи документ в Backend»). It resolves the project by name,
+// enriches intent.Params with the resolved project_id (so that the
+// subsequent NeedsSession-flow in BotUsecase persists it into session state),
+// and instructs the user to send the file as the next message. The actual
+// file upload is performed by handleFileUpload when the document arrives —
+// it sees the active session and routes the file to the resolved project.
+func (e *IntentExecutor) uploadDocumentRequest(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	projectName := intent.Params["project_name"]
+	if projectName == "" {
+		return "Укажите проект, в который нужно загрузить документ.", nil, nil
+	}
+
+	p, err := e.findProjectByName(ctx, userID, projectName)
+	if err != nil {
+		if errors.Is(err, domain.ErrProjectNotFound) {
+			return projectNotFoundMsg(projectName), nil, nil
+		}
+		return "", nil, err
+	}
+
+	// Enrich intent.Params so that BotUsecase.ProcessMessage's NeedsSession
+	// flow stores project_id in session state, making it available to
+	// handleFileUpload when the user sends the file.
+	if intent.Params == nil {
+		intent.Params = make(map[string]string)
+	}
+	intent.Params["project_id"] = p.ID
+
+	return fmt.Sprintf("Жду файл для проекта «%s» 📎\nПоддерживаемые форматы: PDF, DOCX, XLSX, MD, TXT, CSV (до 50MB).", p.Name), nil, nil
+}
+
 func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
 	projectID, err := e.resolveProjectID(ctx, intent, userID)
 	if err != nil {
@@ -435,13 +469,19 @@ func (e *IntentExecutor) unknown() (string, [][]domain.InlineKeyboardButton, err
 	return "Не удалось распознать команду. Введите «помощь» для списка доступных команд.", nil, nil
 }
 
-// NeedsSession returns true if the intent type requires a multi-step session.
+// NeedsSession returns true if the intent type requires a multi-step session
+// to be persisted between messages.
+//
+// IntentUploadDocument (text-flow) needs a session so that handleFileUpload
+// can look up the resolved project_id when the user's file arrives in the
+// following message.
 func NeedsSession(intentType domain.IntentType) bool {
 	switch intentType {
 	case domain.IntentCreateProject,
 		domain.IntentUpdateProject,
 		domain.IntentAddMember,
-		domain.IntentRemoveMember:
+		domain.IntentRemoveMember,
+		domain.IntentUploadDocument:
 		return true
 	default:
 		return false
