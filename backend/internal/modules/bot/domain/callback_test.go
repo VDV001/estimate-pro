@@ -27,8 +27,8 @@ func TestCallbackConstructors(t *testing.T) {
 		{"confirm remove_member", domain.ConfirmCallback(domain.IntentRemoveMember), "confirm:remove_member"},
 		{"select role", domain.SelectCallback(domain.CallbackKeyRole, "developer"), "sel_role:developer"},
 		{"select project", domain.SelectCallback(domain.CallbackKeyProject, "abc-123"), "sel_proj:abc-123"},
-		{"select action role", domain.SelectAction(domain.CallbackKeyRole), "sel_role"},
-		{"select action proj", domain.SelectAction(domain.CallbackKeyProject), "sel_proj"},
+		{"select action role", string(domain.SelectAction(domain.CallbackKeyRole)), "sel_role"},
+		{"select action proj", string(domain.SelectAction(domain.CallbackKeyProject)), "sel_proj"},
 	}
 
 	for _, tc := range cases {

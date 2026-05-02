@@ -412,11 +412,11 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 
 	chatID := strconv.FormatInt(cb.Message.Chat.ID, 10)
 
-	action, payload := parseCallbackData(cb.Data)
+	action, payload := domain.ParseCallback(cb.Data)
 
 	slog.InfoContext(ctx, "BotUsecase.ProcessCallback: incoming",
 		slog.String("chat_id", chatID),
-		slog.String("action", action),
+		slog.String("action", string(action)),
 		slog.String("payload", payload),
 		slog.Int64("from_id", cb.From.ID),
 	)
@@ -434,7 +434,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 	}
 
 	switch {
-	case action == domain.CallbackActionCancel:
+	case action.IsCancel():
 		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: cancel action", slog.String("chat_id", chatID))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr == nil {
@@ -443,7 +443,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		_ = uc.telegram.SendMessage(ctx, chatID, "Отменено.")
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "Отменено")
 
-	case action == domain.CallbackActionConfirm:
+	case action.IsConfirm():
 		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: confirm action", slog.String("chat_id", chatID))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr != nil {
@@ -463,8 +463,8 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		_ = uc.sessions.Complete(ctx, session.ID)
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 
-	case strings.HasPrefix(action, domain.CallbackPrefixSelect):
-		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: selection action", slog.String("action", action), slog.String("payload", payload))
+	case action.IsSelect():
+		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: selection action", slog.String("action", string(action)), slog.String("payload", payload))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr != nil {
 			slog.WarnContext(ctx, "BotUsecase.ProcessCallback: selection but no active session", slog.String("chat_id", chatID), slog.String("error", sErr.Error()))
@@ -487,33 +487,17 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 			return uc.uploadFile(ctx, chatID, link.UserID, payload, doc, state["file_type"])
 		}
 
-		selKey := strings.TrimPrefix(action, domain.CallbackPrefixSelect)
-		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: advancing session", slog.String("selection_key", selKey), slog.String("payload", payload))
-		_ = uc.sessions.Advance(ctx, session, map[string]string{selKey: payload})
+		selKey := action.SelectKey()
+		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: advancing session", slog.String("selection_key", string(selKey)), slog.String("payload", payload))
+		_ = uc.sessions.Advance(ctx, session, map[string]string{string(selKey): payload})
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 
 	default:
-		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: unknown action", slog.String("action", action))
+		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: unknown action", slog.String("action", string(action)))
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
-		_ = payload // suppress unused warning for default case
 	}
 
 	return nil
-}
-
-// parseCallbackData splits Telegram inline-keyboard callback data into
-// action and payload using the "action:payload" convention (see ADR-011).
-//
-// Backward-compatible: a legacy value without a colon yields the whole
-// string as action and an empty payload — old inline keyboards still in
-// chat history continue to work.
-func parseCallbackData(data string) (action, payload string) {
-	parts := strings.SplitN(data, ":", 2)
-	action = parts[0]
-	if len(parts) == 2 {
-		payload = parts[1]
-	}
-	return
 }
 
 // handleSessionMessage processes a text message within an active session flow.
