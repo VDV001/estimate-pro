@@ -137,8 +137,8 @@ func (e *IntentExecutor) createProject(intent *domain.Intent) (string, [][]domai
 
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
-			{Text: "Подтвердить", CallbackData: "confirm:create_project"},
-			{Text: "Отмена", CallbackData: "cancel:"},
+			{Text: "Подтвердить", CallbackData: domain.ConfirmCallback(domain.IntentCreateProject)},
+			{Text: "Отмена", CallbackData: domain.CancelCallback()},
 		},
 	}
 
@@ -175,8 +175,8 @@ func (e *IntentExecutor) updateProject(ctx context.Context, intent *domain.Inten
 
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
-			{Text: "Подтвердить", CallbackData: "confirm:update_project"},
-			{Text: "Отмена", CallbackData: "cancel:"},
+			{Text: "Подтвердить", CallbackData: domain.ConfirmCallback(domain.IntentUpdateProject)},
+			{Text: "Отмена", CallbackData: domain.CancelCallback()},
 		},
 	}
 	return msg.String(), keyboard, nil
@@ -192,18 +192,18 @@ func (e *IntentExecutor) addMember(intent *domain.Intent) (string, [][]domain.In
 
 	msg := fmt.Sprintf("Добавить %s в проект «%s». Выберите роль:", email, projectName)
 
-	// Use "sel_role:" prefix so ProcessCallback's existing strings.HasPrefix(
-	// action, "sel_") branch advances the active session with state["role"]=
-	// <value>. Without "sel_" prefix the click silently falls into default.
+	// SelectCallback emits the select-role form that ProcessCallback's
+	// strings.HasPrefix(action, CallbackPrefixSelect) branch advances the
+	// active session with — without that prefix the click falls into default.
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
-			{Text: "Developer", CallbackData: "sel_role:developer"},
-			{Text: "Tech Lead", CallbackData: "sel_role:tech_lead"},
+			{Text: "Developer", CallbackData: domain.SelectCallback(domain.CallbackKeyRole, "developer")},
+			{Text: "Tech Lead", CallbackData: domain.SelectCallback(domain.CallbackKeyRole, "tech_lead")},
 		},
 		{
-			{Text: "PM", CallbackData: "sel_role:pm"},
-			{Text: "Observer", CallbackData: "sel_role:observer"},
-			{Text: "Admin", CallbackData: "sel_role:admin"},
+			{Text: "PM", CallbackData: domain.SelectCallback(domain.CallbackKeyRole, "pm")},
+			{Text: "Observer", CallbackData: domain.SelectCallback(domain.CallbackKeyRole, "observer")},
+			{Text: "Admin", CallbackData: domain.SelectCallback(domain.CallbackKeyRole, "admin")},
 		},
 	}
 
@@ -222,8 +222,8 @@ func (e *IntentExecutor) removeMember(intent *domain.Intent) (string, [][]domain
 
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
-			{Text: "Подтвердить", CallbackData: "confirm:remove_member"},
-			{Text: "Отмена", CallbackData: "cancel:"},
+			{Text: "Подтвердить", CallbackData: domain.ConfirmCallback(domain.IntentRemoveMember)},
+			{Text: "Отмена", CallbackData: domain.CancelCallback()},
 		},
 	}
 

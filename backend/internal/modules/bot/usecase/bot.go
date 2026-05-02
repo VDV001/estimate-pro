@@ -330,11 +330,11 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 	var keyboard [][]domain.InlineKeyboardButton
 	for _, p := range projects {
 		keyboard = append(keyboard, []domain.InlineKeyboardButton{
-			{Text: p.Name, CallbackData: "sel_proj:" + p.ID},
+			{Text: p.Name, CallbackData: domain.SelectCallback(domain.CallbackKeyProject, p.ID)},
 		})
 	}
 	keyboard = append(keyboard, []domain.InlineKeyboardButton{
-		{Text: "Отмена", CallbackData: "cancel:"},
+		{Text: "Отмена", CallbackData: domain.CancelCallback()},
 	})
 
 	_ = uc.telegram.SendInlineKeyboard(ctx, chatID, fmt.Sprintf("Файл *%s* получен! В какой проект загрузить?", doc.FileName), keyboard)
@@ -434,7 +434,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 	}
 
 	switch {
-	case action == "cancel":
+	case action == domain.CallbackActionCancel:
 		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: cancel action", slog.String("chat_id", chatID))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr == nil {
@@ -443,7 +443,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		_ = uc.telegram.SendMessage(ctx, chatID, "Отменено.")
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "Отменено")
 
-	case action == "confirm":
+	case action == domain.CallbackActionConfirm:
 		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: confirm action", slog.String("chat_id", chatID))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr != nil {
@@ -463,7 +463,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		_ = uc.sessions.Complete(ctx, session.ID)
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 
-	case strings.HasPrefix(action, "sel_"):
+	case strings.HasPrefix(action, domain.CallbackPrefixSelect):
 		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: selection action", slog.String("action", action), slog.String("payload", payload))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr != nil {
@@ -473,7 +473,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		}
 
 		// Handle file upload project selection.
-		if session.Intent == domain.IntentUploadDocument && action == "sel_proj" {
+		if session.Intent == domain.IntentUploadDocument && action == domain.SelectAction(domain.CallbackKeyProject) {
 			slog.InfoContext(ctx, "BotUsecase.ProcessCallback: file upload project selected", slog.String("project_id", payload))
 			state, _ := uc.sessions.GetState(session)
 			fileSize, _ := strconv.ParseInt(state["file_size"], 10, 64)
@@ -487,8 +487,8 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 			return uc.uploadFile(ctx, chatID, link.UserID, payload, doc, state["file_type"])
 		}
 
-		selKey := strings.TrimPrefix(action, "sel_")
-		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: advancing session", slog.String("sel_key", selKey), slog.String("payload", payload))
+		selKey := strings.TrimPrefix(action, domain.CallbackPrefixSelect)
+		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: advancing session", slog.String("selection_key", selKey), slog.String("payload", payload))
 		_ = uc.sessions.Advance(ctx, session, map[string]string{selKey: payload})
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 
@@ -502,11 +502,11 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 }
 
 // parseCallbackData splits Telegram inline-keyboard callback data into
-// action and payload using the "action:payload" convention.
+// action and payload using the "action:payload" convention (see ADR-011).
 //
-// Backward-compatible: a legacy value without ":" (e.g. "cancel") yields the
-// whole string as action and an empty payload — old inline keyboards still
-// in chat history continue to work.
+// Backward-compatible: a legacy value without a colon yields the whole
+// string as action and an empty payload — old inline keyboards still in
+// chat history continue to work.
 func parseCallbackData(data string) (action, payload string) {
 	parts := strings.SplitN(data, ":", 2)
 	action = parts[0]
