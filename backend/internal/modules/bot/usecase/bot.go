@@ -412,13 +412,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 
 	chatID := strconv.FormatInt(cb.Message.Chat.ID, 10)
 
-	// Parse callback data: "action:payload"
-	parts := strings.SplitN(cb.Data, ":", 2)
-	action := parts[0]
-	payload := ""
-	if len(parts) > 1 {
-		payload = parts[1]
-	}
+	action, payload := parseCallbackData(cb.Data)
 
 	slog.InfoContext(ctx, "BotUsecase.ProcessCallback: incoming",
 		slog.String("chat_id", chatID),
@@ -509,9 +503,17 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 
 // parseCallbackData splits Telegram inline-keyboard callback data into
 // action and payload using the "action:payload" convention.
-// Stub for issue #20 — implementation to follow in GREEN step.
-func parseCallbackData(_ string) (action, payload string) {
-	return "", ""
+//
+// Backward-compatible: a legacy value without ":" (e.g. "cancel") yields the
+// whole string as action and an empty payload — old inline keyboards still
+// in chat history continue to work.
+func parseCallbackData(data string) (action, payload string) {
+	parts := strings.SplitN(data, ":", 2)
+	action = parts[0]
+	if len(parts) == 2 {
+		payload = parts[1]
+	}
+	return
 }
 
 // handleSessionMessage processes a text message within an active session flow.
