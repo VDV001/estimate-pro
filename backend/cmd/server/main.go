@@ -43,6 +43,7 @@ import (
 	documentRepo "github.com/VDV001/estimate-pro/backend/internal/modules/document/repository"
 	documentUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/document/usecase"
 
+	estimationDomain "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/domain"
 	estimationHandler "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/handler"
 	estimationRepo "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/repo"
 	estimationUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/usecase"
@@ -448,6 +449,14 @@ func (a *botEstimationAdapter) GetAggregated(ctx context.Context, projectID stri
 
 // SubmitItem creates a single-item estimation for the given task and submits
 // it on behalf of the user. Used by the bot `submit_estimation` intent.
+//
+// Wraps estimation/domain.ErrInvalidHours into bot/domain.ErrInvalidEstimationHours
+// so the bot module stays decoupled from estimation/domain's concrete error types.
+//
+// NOTE: Create+Submit is non-atomic — if Submit fails after Create succeeds,
+// the estimation will be left in draft state. Acceptable for low-volume bot
+// usage; a proper transactional CreateAndSubmit usecase is a future refactor
+// (track separately).
 func (a *botEstimationAdapter) SubmitItem(ctx context.Context, projectID, userID, taskName string, minHours, likelyHours, maxHours float64) error {
 	input := estimationUsecase.CreateInput{
 		ProjectID: projectID,
@@ -458,6 +467,9 @@ func (a *botEstimationAdapter) SubmitItem(ctx context.Context, projectID, userID
 	}
 	created, err := a.estimationUC.Create(ctx, input)
 	if err != nil {
+		if errors.Is(err, estimationDomain.ErrInvalidHours) {
+			return botDomain.ErrInvalidEstimationHours
+		}
 		return fmt.Errorf("botEstimationAdapter.SubmitItem: create: %w", err)
 	}
 	if err := a.estimationUC.Submit(ctx, created.Estimation.ID, userID); err != nil {
@@ -466,12 +478,14 @@ func (a *botEstimationAdapter) SubmitItem(ctx context.Context, projectID, userID
 	return nil
 }
 
-// RequestEstimation is a placeholder for the `request_estimation` bot intent.
-// In the current iteration the bot composes a friendly message and the actual
-// notification fan-out to project participants is delegated to the notify
-// dispatcher (out of scope for this adapter — see follow-up issue).
+// RequestEstimation is a placeholder for the bot `request_estimation` intent
+// pending real notify-dispatcher integration tracked in issue #25.
+//
+// Returns botDomain.ErrFeatureNotImplemented (NOT nil) — the executor maps
+// this to a clear "feature in development" message to the user, avoiding
+// silent-success deception (user thinks team was notified when they weren't).
 func (a *botEstimationAdapter) RequestEstimation(_ context.Context, _, _, _ string) error {
-	return nil
+	return botDomain.ErrFeatureNotImplemented
 }
 
 // botDocumentAdapter implements botDomain.DocumentManager using existing document usecases.
