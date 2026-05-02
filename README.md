@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.12.1-blue)
+![Version](https://img.shields.io/badge/version-0.12.2-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,13 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.12.1`**
+**Текущая версия: `0.12.2`**
 
 ### Changelog
+
+#### v0.12.2 (2026-05-02)
+- refactor(bot): callback-протокол вынесен в typed constants `bot/domain/callback.go` — magic strings `cancel`/`confirm:<intent>`/`sel_<key>:<value>` заменены на `CancelCallback()`/`ConfirmCallback(intent)`/`SelectCallback(key, value)`/`SelectAction(key)` (#29)
+- feat(bot/domain): typed `CallbackKey` (whitelist `proj`/`role` через `IsKnown()`) + конструкторы panic-ят на invalid input — programmer-error инвариант идиомой `regexp.MustCompile`. Wire-format не изменился, легасные inline-keyboards в чатах продолжают работать.
 
 #### v0.12.1 (2026-05-02)
 - audit(bot): callback completion flow audit (#21) — найдены 3 бага в multi-step flows
