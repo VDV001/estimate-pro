@@ -94,10 +94,18 @@ type EstimationManager interface {
 	// immediately submits it on behalf of the user. Used by the bot
 	// `submit_estimation` intent (e.g. "Оценка для задачи X в проекте Y:
 	// min 8, likely 12, max 20").
+	//
+	// Returns ErrInvalidEstimationHours when min/likely/max violate the
+	// domain invariant (min ≤ likely ≤ max, all ≥ 0). Other errors are
+	// treated as internal.
 	SubmitItem(ctx context.Context, projectID, userID, taskName string, minHours, likelyHours, maxHours float64) error
 	// RequestEstimation marks a task as needing estimation in the given
 	// project, notifying participants. Used by the bot `request_estimation`
 	// intent.
+	//
+	// May return ErrFeatureNotImplemented if the adapter is a placeholder
+	// pending real notify-dispatcher integration (tracked in issue #25).
+	// Executor maps this to a "feature in development" user-message.
 	RequestEstimation(ctx context.Context, projectID, userID, taskName string) error
 }
 

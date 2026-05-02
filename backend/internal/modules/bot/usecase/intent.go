@@ -248,12 +248,6 @@ func (e *IntentExecutor) submitEstimation(ctx context.Context, intent *domain.In
 	if errMin != nil || errLikely != nil || errMax != nil {
 		return "Часы должны быть числами (например 8 или 12.5).", nil, nil
 	}
-	// UX-friendly check that mirrors domain.NewEstimationItem invariants —
-	// показываем понятное сообщение до похода в БД (домен всё равно
-	// провалидирует на нижнем уровне).
-	if minH < 0 || likelyH < 0 || maxH < 0 || minH > likelyH || likelyH > maxH {
-		return "Часы должны удовлетворять условию min ≤ likely ≤ max и быть неотрицательными.", nil, nil
-	}
 
 	p, err := e.findProjectByName(ctx, userID, projectName)
 	if err != nil {
@@ -263,7 +257,13 @@ func (e *IntentExecutor) submitEstimation(ctx context.Context, intent *domain.In
 		return "", nil, err
 	}
 
+	// Domain validates min ≤ likely ≤ max in NewEstimationItem; bot adapter
+	// wraps estimation's ErrInvalidHours into domain.ErrInvalidEstimationHours
+	// so we map back to UX message here without duplicating the invariant.
 	if err := e.estimations.SubmitItem(ctx, p.ID, userID, taskName, minH, likelyH, maxH); err != nil {
+		if errors.Is(err, domain.ErrInvalidEstimationHours) {
+			return "Часы должны удовлетворять условию min ≤ likely ≤ max и быть неотрицательными.", nil, nil
+		}
 		slog.ErrorContext(ctx, "IntentExecutor.submitEstimation: SubmitItem failed", slog.String("project_id", p.ID), slog.String("task", taskName), slog.String("error", err.Error()))
 		return "", nil, fmt.Errorf("IntentExecutor.submitEstimation: %w", err)
 	}
@@ -291,6 +291,10 @@ func (e *IntentExecutor) requestEstimation(ctx context.Context, intent *domain.I
 	}
 
 	if err := e.estimations.RequestEstimation(ctx, p.ID, userID, taskName); err != nil {
+		if errors.Is(err, domain.ErrFeatureNotImplemented) {
+			return "Функция «запрос оценки» пока в разработке (см. issue #25). " +
+				"Пока добавь оценку вручную через UI или используй команду «оценка <проект> <задача> min=X likely=Y max=Z».", nil, nil
+		}
 		slog.ErrorContext(ctx, "IntentExecutor.requestEstimation: RequestEstimation failed", slog.String("project_id", p.ID), slog.String("task", taskName), slog.String("error", err.Error()))
 		return "", nil, fmt.Errorf("IntentExecutor.requestEstimation: %w", err)
 	}
