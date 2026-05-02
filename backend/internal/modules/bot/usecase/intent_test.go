@@ -234,6 +234,66 @@ func TestExecute(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:         "UpdateProject_NoName",
+			intent:       &domain.Intent{Type: domain.IntentUpdateProject, Params: map[string]string{}},
+			userID:       "user-1",
+			wantContains: []string{"Укажите проект"},
+		},
+		{
+			name:         "UpdateProject_NoChanges",
+			intent:       &domain.Intent{Type: domain.IntentUpdateProject, Params: map[string]string{"project_name": "Alpha"}},
+			userID:       "user-1",
+			wantContains: []string{"обновить"},
+		},
+		{
+			name:   "UpdateProject_ByName_Success",
+			intent: &domain.Intent{Type: domain.IntentUpdateProject, Params: map[string]string{"project_name": "Alpha", "description": "new desc"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha", Status: "active"}}, 1, nil
+				},
+			},
+			wantContains:      []string{"Alpha", "new desc"},
+			wantKeyboard:      true,
+			wantKeyboardTexts: []string{"Подтвердить", "Отмена"},
+		},
+		{
+			name:   "UpdateProject_ByName_RenameAndDescription",
+			intent: &domain.Intent{Type: domain.IntentUpdateProject, Params: map[string]string{"project_name": "Alpha", "new_name": "Alpha-2", "description": "v2"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha", Status: "active"}}, 1, nil
+				},
+			},
+			wantContains:      []string{"Alpha-2", "v2"},
+			wantKeyboard:      true,
+			wantKeyboardTexts: []string{"Подтвердить", "Отмена"},
+		},
+		{
+			name:   "UpdateProject_ByName_NotFound",
+			intent: &domain.Intent{Type: domain.IntentUpdateProject, Params: map[string]string{"project_name": "Ghost", "description": "new"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{}, 0, nil
+				},
+			},
+			wantContains: []string{"Ghost", "не найден"},
+		},
+		{
+			name:   "UpdateProject_ListProjectsError",
+			intent: &domain.Intent{Type: domain.IntentUpdateProject, Params: map[string]string{"project_name": "Alpha", "description": "new"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return nil, 0, errors.New("db error")
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name:   "GetAggregated_Error",
 			intent: &domain.Intent{Type: domain.IntentGetAggregated, Params: map[string]string{"project_id": "p1"}},
 			userID: "user-1",
