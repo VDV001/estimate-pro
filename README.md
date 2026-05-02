@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.12.2-blue)
+![Version](https://img.shields.io/badge/version-0.12.3-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,14 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.12.2`**
+**Текущая версия: `0.12.3`**
 
 ### Changelog
+
+#### v0.12.3 (2026-05-02)
+- refactor(bot): typed `CallbackAction` + `ParseCallback` для type-safe парсера. ProcessCallback теперь идёт через `action.IsCancel()`/`IsConfirm()`/`IsSelect()`/`SelectKey()`, никаких `strings.HasPrefix`/`TrimPrefix` для callback-протокола. `SelectAction` возвращает `CallbackAction` (#31, #32).
+- fix(bot/domain): `ConfirmCallback` реджектит `IntentUnknown` — classifier эмитит его на unparseable input, и подтверждать там нечего (#33).
+- chore(bot): private `parseCallbackData` helper удалён из usecase, поднят в `bot/domain/callback.go` как `ParseCallback`. Single source of truth для wire-format split.
 
 #### v0.12.2 (2026-05-02)
 - refactor(bot): callback-протокол вынесен в typed constants `bot/domain/callback.go` — magic strings `cancel`/`confirm:<intent>`/`sel_<key>:<value>` заменены на `CancelCallback()`/`ConfirmCallback(intent)`/`SelectCallback(key, value)`/`SelectAction(key)` (#29)
