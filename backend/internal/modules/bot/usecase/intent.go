@@ -54,9 +54,9 @@ func (e *IntentExecutor) Execute(ctx context.Context, intent *domain.Intent, use
 	case domain.IntentRemoveMember:
 		return e.removeMember(intent)
 	case domain.IntentListMembers:
-		return e.listMembers(ctx, intent)
+		return e.listMembers(ctx, intent, userID)
 	case domain.IntentGetAggregated:
-		return e.getAggregated(ctx, intent)
+		return e.getAggregated(ctx, intent, userID)
 	case domain.IntentForgotPassword:
 		return e.forgotPassword(ctx, intent, userID)
 	case domain.IntentHelp:
@@ -181,10 +181,13 @@ func (e *IntentExecutor) removeMember(intent *domain.Intent) (string, [][]domain
 	return msg, keyboard, nil
 }
 
-func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent) (string, [][]domain.InlineKeyboardButton, error) {
-	projectID := intent.Params["project_id"]
-	if projectID == "" {
-		return "Выберите проект, чтобы просмотреть участников.", nil, nil
+func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	projectID, userMsg, err := e.resolveProjectID(ctx, intent, userID, "Укажите проект, чтобы просмотреть участников.")
+	if err != nil {
+		return "", nil, err
+	}
+	if userMsg != "" {
+		return userMsg, nil, nil
 	}
 
 	slog.DebugContext(ctx, "IntentExecutor.listMembers", slog.String("project_id", projectID))
@@ -207,10 +210,13 @@ func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent)
 	return b.String(), nil, nil
 }
 
-func (e *IntentExecutor) getAggregated(ctx context.Context, intent *domain.Intent) (string, [][]domain.InlineKeyboardButton, error) {
-	projectID := intent.Params["project_id"]
-	if projectID == "" {
-		return "Выберите проект, чтобы получить агрегированную оценку.", nil, nil
+func (e *IntentExecutor) getAggregated(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	projectID, userMsg, err := e.resolveProjectID(ctx, intent, userID, "Укажите проект, чтобы получить агрегированную оценку.")
+	if err != nil {
+		return "", nil, err
+	}
+	if userMsg != "" {
+		return userMsg, nil, nil
 	}
 
 	slog.DebugContext(ctx, "IntentExecutor.getAggregated", slog.String("project_id", projectID))
@@ -221,6 +227,42 @@ func (e *IntentExecutor) getAggregated(ctx context.Context, intent *domain.Inten
 	}
 
 	return result, nil, nil
+}
+
+// resolveProjectID resolves a project ID from intent params using two strategies:
+//  1. Direct project_id (callback flow — set by selection inline-button).
+//  2. Lookup by project_name through projects.ListByUser (text-message flow —
+//     classifier extracts the name from a user phrase).
+//
+// Return contract: exactly one of (projectID, userMsg, err) is non-zero.
+//   - projectID != "" — resolved, proceed.
+//   - userMsg != ""   — present this message to the user with no keyboard.
+//   - err != nil      — internal error, propagate.
+//
+// missingMsg is shown when neither project_id nor project_name is provided.
+func (e *IntentExecutor) resolveProjectID(
+	ctx context.Context,
+	intent *domain.Intent,
+	userID, missingMsg string,
+) (projectID, userMsg string, err error) {
+	if id := intent.Params["project_id"]; id != "" {
+		return id, "", nil
+	}
+	name := intent.Params["project_name"]
+	if name == "" {
+		return "", missingMsg, nil
+	}
+	projects, _, listErr := e.projects.ListByUser(ctx, userID, 100, 0)
+	if listErr != nil {
+		slog.ErrorContext(ctx, "IntentExecutor.resolveProjectID: ListByUser failed", slog.String("user_id", userID), slog.String("error", listErr.Error()))
+		return "", "", fmt.Errorf("IntentExecutor.resolveProjectID: %w", listErr)
+	}
+	for _, p := range projects {
+		if strings.EqualFold(p.Name, name) {
+			return p.ID, "", nil
+		}
+	}
+	return "", fmt.Sprintf("Проект «%s» не найден. Используйте «мои проекты» для просмотра списка.", name), nil
 }
 
 func (e *IntentExecutor) forgotPassword(ctx context.Context, _ *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
