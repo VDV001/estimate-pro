@@ -479,7 +479,7 @@ func (a *botEstimationAdapter) SubmitItem(ctx context.Context, projectID, userID
 }
 
 // RequestEstimation is a placeholder for the bot `request_estimation` intent
-// pending real notify-dispatcher integration tracked in issue #25.
+// pending real notify-dispatcher integration tracked in issue #24.
 //
 // Returns botDomain.ErrFeatureNotImplemented (NOT nil) — the executor maps
 // this to a clear "feature in development" message to the user, avoiding
