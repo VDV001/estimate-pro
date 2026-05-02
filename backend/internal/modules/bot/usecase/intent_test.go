@@ -456,6 +456,45 @@ func TestExecute(t *testing.T) {
 			wantContains: []string{"Ghost", "не найден"},
 		},
 		{
+			name:         "UploadDocument_NoProjectName",
+			intent:       &domain.Intent{Type: domain.IntentUploadDocument, Params: map[string]string{}},
+			userID:       "user-1",
+			wantContains: []string{"Укажите", "проект"},
+		},
+		{
+			name:   "UploadDocument_ByName_Success",
+			intent: &domain.Intent{Type: domain.IntentUploadDocument, Params: map[string]string{"project_name": "Alpha"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
+				},
+			},
+			wantContains: []string{"Alpha", "файл"},
+		},
+		{
+			name:   "UploadDocument_ByName_NotFound",
+			intent: &domain.Intent{Type: domain.IntentUploadDocument, Params: map[string]string{"project_name": "Ghost"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{}, 0, nil
+				},
+			},
+			wantContains: []string{"Ghost", "не найден"},
+		},
+		{
+			name:   "UploadDocument_ListProjectsError",
+			intent: &domain.Intent{Type: domain.IntentUploadDocument, Params: map[string]string{"project_name": "Alpha"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return nil, 0, errors.New("db error")
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "RequestEstimation_RequestError",
 			intent: &domain.Intent{Type: domain.IntentRequestEstimation, Params: map[string]string{
 				"project_name": "Alpha", "task_name": "Auth",
@@ -953,6 +992,32 @@ func TestExecute_RemoveMember_CancelButtonUsesColonFormat(t *testing.T) {
 	}
 }
 
+// TestExecute_UploadDocument_EnrichesParamsWithProjectID verifies that the
+// upload_document intent executor resolves project_name → project_id and
+// stores the resolved ID back into intent.Params, so that BotUsecase
+// (which serialises intent.Params into the new session state) makes
+// project_id available to handleFileUpload when the file actually arrives.
+// See issue #19.
+func TestExecute_UploadDocument_EnrichesParamsWithProjectID(t *testing.T) {
+	projects := &mockProjectManager{
+		listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+			return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
+		},
+	}
+	executor := usecase.NewIntentExecutor(projects, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil)
+	intent := &domain.Intent{
+		Type:   domain.IntentUploadDocument,
+		Params: map[string]string{"project_name": "Alpha"},
+	}
+	_, _, err := executor.Execute(t.Context(), intent, "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := intent.Params["project_id"]; got != "p1" {
+		t.Errorf("project_id enrichment: got %q, want p1", got)
+	}
+}
+
 // findButtonCallbackData returns the CallbackData of the first button matching
 // text, or empty string if not found.
 func findButtonCallbackData(keyboard [][]domain.InlineKeyboardButton, text string) string {
@@ -980,7 +1045,7 @@ func TestNeedsSession(t *testing.T) {
 		{domain.IntentGetAggregated, false},
 		{domain.IntentListMembers, false},
 		{domain.IntentGetProjectStatus, false},
-		{domain.IntentUploadDocument, false},
+		{domain.IntentUploadDocument, true},
 		{domain.IntentForgotPassword, false},
 		{domain.IntentUnknown, false},
 	}
