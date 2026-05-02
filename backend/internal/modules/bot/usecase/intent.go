@@ -129,7 +129,7 @@ func (e *IntentExecutor) createProject(intent *domain.Intent) (string, [][]domai
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
 			{Text: "Подтвердить", CallbackData: "confirm:create_project"},
-			{Text: "Отмена", CallbackData: "cancel"},
+			{Text: "Отмена", CallbackData: "cancel:"},
 		},
 	}
 
@@ -174,7 +174,7 @@ func (e *IntentExecutor) removeMember(intent *domain.Intent) (string, [][]domain
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
 			{Text: "Подтвердить", CallbackData: "confirm:remove_member"},
-			{Text: "Отмена", CallbackData: "cancel"},
+			{Text: "Отмена", CallbackData: "cancel:"},
 		},
 	}
 
