@@ -242,10 +242,8 @@ func (e *IntentExecutor) submitEstimation(ctx context.Context, intent *domain.In
 	if minStr == "" || likelyStr == "" || maxStr == "" {
 		return "Укажите минимальные, ожидаемые и максимальные часы (min, likely, max).", nil, nil
 	}
-	minH, errMin := strconv.ParseFloat(minStr, 64)
-	likelyH, errLikely := strconv.ParseFloat(likelyStr, 64)
-	maxH, errMax := strconv.ParseFloat(maxStr, 64)
-	if errMin != nil || errLikely != nil || errMax != nil {
+	minH, likelyH, maxH, ok := parseHours(minStr, likelyStr, maxStr)
+	if !ok {
 		return "Часы должны быть числами (например 8 или 12.5).", nil, nil
 	}
 
@@ -434,6 +432,17 @@ func (e *IntentExecutor) findProjectByName(ctx context.Context, userID, name str
 // project_name does not match any of the user's projects.
 func projectNotFoundMsg(name string) string {
 	return fmt.Sprintf("Проект «%s» не найден. Используйте «мои проекты» для просмотра списка.", name)
+}
+
+// parseHours parses min/likely/max hours from string params. Returns ok=false
+// if any value fails strconv.ParseFloat. Domain validates the invariant
+// min ≤ likely ≤ max in NewEstimationItem — caller should not duplicate.
+func parseHours(minStr, likelyStr, maxStr string) (minH, likelyH, maxH float64, ok bool) {
+	minH, errMin := strconv.ParseFloat(minStr, 64)
+	likelyH, errLikely := strconv.ParseFloat(likelyStr, 64)
+	maxH, errMax := strconv.ParseFloat(maxStr, 64)
+	ok = errMin == nil && errLikely == nil && errMax == nil
+	return
 }
 
 func (e *IntentExecutor) forgotPassword(ctx context.Context, _ *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
