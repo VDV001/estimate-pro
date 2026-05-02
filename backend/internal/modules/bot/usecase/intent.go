@@ -68,6 +68,8 @@ func (e *IntentExecutor) Execute(ctx context.Context, intent *domain.Intent, use
 		return e.getAggregated(ctx, intent, userID)
 	case domain.IntentSubmitEstimation:
 		return e.submitEstimation(ctx, intent, userID)
+	case domain.IntentRequestEstimation:
+		return e.requestEstimation(ctx, intent, userID)
 	case domain.IntentForgotPassword:
 		return e.forgotPassword(ctx, intent, userID)
 	case domain.IntentHelp:
@@ -266,6 +268,32 @@ func (e *IntentExecutor) submitEstimation(ctx context.Context, intent *domain.In
 
 	return fmt.Sprintf("Оценка для задачи «%s» в проекте «%s» отправлена! ✅\n• min: %vч\n• likely: %vч\n• max: %vч",
 		taskName, p.Name, minH, likelyH, maxH), nil, nil
+}
+
+func (e *IntentExecutor) requestEstimation(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	projectName := intent.Params["project_name"]
+	if projectName == "" {
+		return "Укажите проект, для которого нужна оценка.", nil, nil
+	}
+	taskName := intent.Params["task_name"]
+	if taskName == "" {
+		return "Укажите задачу, для которой нужна оценка.", nil, nil
+	}
+
+	p, err := e.findProjectByName(ctx, userID, projectName)
+	if err != nil {
+		if errors.Is(err, domain.ErrProjectNotFound) {
+			return projectNotFoundMsg(projectName), nil, nil
+		}
+		return "", nil, err
+	}
+
+	if err := e.estimations.RequestEstimation(ctx, p.ID, userID, taskName); err != nil {
+		slog.ErrorContext(ctx, "IntentExecutor.requestEstimation: RequestEstimation failed", slog.String("project_id", p.ID), slog.String("task", taskName), slog.String("error", err.Error()))
+		return "", nil, fmt.Errorf("IntentExecutor.requestEstimation: %w", err)
+	}
+
+	return fmt.Sprintf("Запрос оценки задачи «%s» в проекте «%s» отправлен команде. 📨", taskName, p.Name), nil, nil
 }
 
 func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {

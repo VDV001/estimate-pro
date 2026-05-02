@@ -428,7 +428,7 @@ func TestExecute(t *testing.T) {
 					return nil
 				},
 			},
-			wantContains: []string{"Auth", "Alpha", "запрос"},
+			wantContains: []string{"Auth", "Alpha", "Запрос"},
 		},
 		{
 			name:         "RequestEstimation_NoProjectName",
