@@ -44,4 +44,12 @@ var (
 
 	// ErrUserNotFound is returned when no EstimatePro user matches the given Telegram ID.
 	ErrUserNotFound = errors.New("bot: no user found for telegram id")
+
+	// ErrProjectNotIdentified is returned when an intent that requires a
+	// project provides neither project_id nor project_name.
+	ErrProjectNotIdentified = errors.New("bot: project identifier missing")
+
+	// ErrProjectNotFound is returned when a project_name does not match any
+	// project owned by or shared with the user.
+	ErrProjectNotFound = errors.New("bot: project not found")
 )
