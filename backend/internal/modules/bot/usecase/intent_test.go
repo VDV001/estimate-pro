@@ -992,6 +992,57 @@ func TestExecute_RemoveMember_CancelButtonUsesColonFormat(t *testing.T) {
 	}
 }
 
+// TestExecute_AllValidIntentsHaveCase is a defensive gate that protects
+// against the regression that caused issue #19: an intent declared in
+// IntentType.IsValid() but missing a case in Execute switch falls through
+// to default → unknown() → bot says «не понял команду» despite confidently
+// classifying the message.
+//
+// If you add a new IntentType, you MUST add a corresponding case in Execute.
+// This test will fail otherwise.
+func TestExecute_AllValidIntentsHaveCase(t *testing.T) {
+	// All currently-defined intents (mirrors IntentType.IsValid in
+	// bot/domain/entities.go). Excludes IntentUnknown which by design
+	// goes to default → unknown().
+	allValidIntents := []domain.IntentType{
+		domain.IntentCreateProject,
+		domain.IntentUpdateProject,
+		domain.IntentListProjects,
+		domain.IntentGetProjectStatus,
+		domain.IntentAddMember,
+		domain.IntentRemoveMember,
+		domain.IntentListMembers,
+		domain.IntentRequestEstimation,
+		domain.IntentSubmitEstimation,
+		domain.IntentGetAggregated,
+		domain.IntentUploadDocument,
+		domain.IntentForgotPassword,
+		domain.IntentHelp,
+	}
+
+	executor := usecase.NewIntentExecutor(
+		&mockProjectManager{},
+		&mockMemberManager{},
+		&mockEstimationManager{},
+		&mockDocumentManager{},
+		&mockPasswordResetManager{},
+	)
+	const unknownMarker = "Не удалось распознать команду"
+
+	for _, it := range allValidIntents {
+		t.Run(string(it), func(t *testing.T) {
+			if !it.IsValid() {
+				t.Fatalf("intent %q is in test list but IsValid()==false — fix the test list or domain.IsValid", it)
+			}
+			intent := &domain.Intent{Type: it, Params: map[string]string{}}
+			msg, _, _ := executor.Execute(t.Context(), intent, "user-1")
+			if strings.Contains(msg, unknownMarker) {
+				t.Errorf("intent %q falls through to default — add a case to IntentExecutor.Execute switch", it)
+			}
+		})
+	}
+}
+
 // TestExecute_UploadDocument_EnrichesParamsWithProjectID verifies that the
 // upload_document intent executor resolves project_name → project_id and
 // stores the resolved ID back into intent.Params, so that BotUsecase
