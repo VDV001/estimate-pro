@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
@@ -65,6 +66,8 @@ func (e *IntentExecutor) Execute(ctx context.Context, intent *domain.Intent, use
 		return e.listMembers(ctx, intent, userID)
 	case domain.IntentGetAggregated:
 		return e.getAggregated(ctx, intent, userID)
+	case domain.IntentSubmitEstimation:
+		return e.submitEstimation(ctx, intent, userID)
 	case domain.IntentForgotPassword:
 		return e.forgotPassword(ctx, intent, userID)
 	case domain.IntentHelp:
@@ -218,6 +221,51 @@ func (e *IntentExecutor) removeMember(intent *domain.Intent) (string, [][]domain
 	}
 
 	return msg, keyboard, nil
+}
+
+func (e *IntentExecutor) submitEstimation(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	projectName := intent.Params["project_name"]
+	if projectName == "" {
+		return "Укажите проект для отправки оценки.", nil, nil
+	}
+	taskName := intent.Params["task_name"]
+	if taskName == "" {
+		return "Укажите задачу для оценки.", nil, nil
+	}
+	minStr := intent.Params["min_hours"]
+	likelyStr := intent.Params["likely_hours"]
+	maxStr := intent.Params["max_hours"]
+	if minStr == "" || likelyStr == "" || maxStr == "" {
+		return "Укажите минимальные, ожидаемые и максимальные часы (min, likely, max).", nil, nil
+	}
+	minH, errMin := strconv.ParseFloat(minStr, 64)
+	likelyH, errLikely := strconv.ParseFloat(likelyStr, 64)
+	maxH, errMax := strconv.ParseFloat(maxStr, 64)
+	if errMin != nil || errLikely != nil || errMax != nil {
+		return "Часы должны быть числами (например 8 или 12.5).", nil, nil
+	}
+	// UX-friendly check that mirrors domain.NewEstimationItem invariants —
+	// показываем понятное сообщение до похода в БД (домен всё равно
+	// провалидирует на нижнем уровне).
+	if minH < 0 || likelyH < 0 || maxH < 0 || minH > likelyH || likelyH > maxH {
+		return "Часы должны удовлетворять условию min ≤ likely ≤ max и быть неотрицательными.", nil, nil
+	}
+
+	p, err := e.findProjectByName(ctx, userID, projectName)
+	if err != nil {
+		if errors.Is(err, domain.ErrProjectNotFound) {
+			return projectNotFoundMsg(projectName), nil, nil
+		}
+		return "", nil, err
+	}
+
+	if err := e.estimations.SubmitItem(ctx, p.ID, userID, taskName, minH, likelyH, maxH); err != nil {
+		slog.ErrorContext(ctx, "IntentExecutor.submitEstimation: SubmitItem failed", slog.String("project_id", p.ID), slog.String("task", taskName), slog.String("error", err.Error()))
+		return "", nil, fmt.Errorf("IntentExecutor.submitEstimation: %w", err)
+	}
+
+	return fmt.Sprintf("Оценка для задачи «%s» в проекте «%s» отправлена! ✅\n• min: %vч\n• likely: %vч\n• max: %vч",
+		taskName, p.Name, minH, likelyH, maxH), nil, nil
 }
 
 func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
