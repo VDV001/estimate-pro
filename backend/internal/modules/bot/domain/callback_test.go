@@ -41,22 +41,87 @@ func TestCallbackConstructors(t *testing.T) {
 	}
 }
 
-// TestSelectActionMatchesSelectCallbackPrefix asserts the parser-side
-// invariant: SelectAction(key) is always a prefix of SelectCallback(key, *).
-// If this ever fails, ProcessCallback's strings.HasPrefix check would miss
-// keyboards built by SelectCallback.
-func TestSelectActionMatchesSelectCallbackPrefix(t *testing.T) {
+// TestConfirmCallbackPanicsOnInvalidIntent guards the constructor invariant.
+// All production callers pass a literal IntentXxx constant, so an invalid
+// IntentType signals a programmer error — surface it at test time rather than
+// emitting "confirm:" with empty payload that the parser would happily route.
+func TestConfirmCallbackPanicsOnInvalidIntent(t *testing.T) {
 	t.Parallel()
 
-	keys := []string{domain.CallbackKeyRole, domain.CallbackKeyProject}
-	for _, k := range keys {
-		full := domain.SelectCallback(k, "anything")
-		action := domain.SelectAction(k)
-		if !strings.HasPrefix(full, domain.CallbackPrefixSelect) {
-			t.Errorf("SelectCallback(%q,*) = %q does not start with %q", k, full, domain.CallbackPrefixSelect)
-		}
-		if !strings.HasPrefix(full, action+":") {
-			t.Errorf("SelectAction(%q) = %q is not a prefix of SelectCallback(%q,*) = %q", k, action, k, full)
-		}
+	cases := []struct {
+		name   string
+		intent domain.IntentType
+	}{
+		{"empty", domain.IntentType("")},
+		{"unknown literal", domain.IntentType("not_a_real_intent")},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("expected panic for invalid intent %q, got none", string(tc.intent))
+				}
+				if msg, ok := r.(string); ok && !strings.Contains(msg, "ConfirmCallback") {
+					t.Errorf("panic message missing constructor name: %q", msg)
+				}
+			}()
+			_ = domain.ConfirmCallback(tc.intent)
+		})
+	}
+}
+
+// TestSelectCallbackPanicsOnUnknownKey guards the same invariant for the
+// selection family. An ad-hoc key would advance the active session with an
+// arbitrary state field, polluting subsequent session reads.
+func TestSelectCallbackPanicsOnUnknownKey(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		fn   func()
+	}{
+		{"SelectCallback empty key", func() { _ = domain.SelectCallback(domain.CallbackKey(""), "v") }},
+		{"SelectCallback unknown key", func() { _ = domain.SelectCallback(domain.CallbackKey("foo"), "v") }},
+		{"SelectAction empty key", func() { _ = domain.SelectAction(domain.CallbackKey("")) }},
+		{"SelectAction unknown key", func() { _ = domain.SelectAction(domain.CallbackKey("foo")) }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatalf("expected panic, got none")
+				}
+			}()
+			tc.fn()
+		})
+	}
+}
+
+// TestCallbackKeyIsKnown — table-driven coverage of the whitelist gate.
+func TestCallbackKeyIsKnown(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		key  domain.CallbackKey
+		want bool
+	}{
+		{domain.CallbackKeyProject, true},
+		{domain.CallbackKeyRole, true},
+		{domain.CallbackKey(""), false},
+		{domain.CallbackKey("proj_typo"), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.key), func(t *testing.T) {
+			t.Parallel()
+			if got := tc.key.IsKnown(); got != tc.want {
+				t.Errorf("CallbackKey(%q).IsKnown() = %v, want %v", string(tc.key), got, tc.want)
+			}
+		})
 	}
 }
