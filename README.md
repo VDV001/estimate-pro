@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.11.4-blue)
+![Version](https://img.shields.io/badge/version-0.12.0-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,19 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.11.4`**
+**Текущая версия: `0.12.0`**
 
 ### Changelog
+
+#### v0.12.0 (2026-05-02)
+- feat(bot): реализованы все 4 ранее неработавших intents — classifier их распознавал, executor падал в default → unknown (#19)
+  - `update_project` — переименование/изменение описания через session-flow с подтверждением
+  - `submit_estimation` — отправка PERT-оценки (min/likely/max) в одну команду
+  - `request_estimation` — запрос оценки от команды (placeholder, real notify-integration → #24)
+  - `upload_document` (text-flow) — text-intent создаёт сессию, следующий файл загружается в правильный проект автоматически
+- feat(bot): защитный gate `TestExecute_AllValidIntentsHaveCase` — валидные intents без case в Execute теперь fail тестов
+- feat(bot): sentinel errors `ErrInvalidEstimationHours` и `ErrFeatureNotImplemented` — никакого silent-success в адаптерах
+- chore(bot): classifier prompt расширен `new_name` параметром для update_project + два примера
 
 #### v0.11.4 (2026-05-02)
 - fix(bot): команды «участники [проект]» и «оценка [проект]» из help снова работают по тексту — `listMembers`/`getAggregated` теперь резолвят project по имени через общий `findProjectByName` helper, а не падают на пустом `project_id` (#18)
