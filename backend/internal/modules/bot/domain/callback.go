@@ -48,11 +48,12 @@ func CancelCallback() string {
 // ConfirmCallback returns the callback_data string for a "confirm" button
 // scoped to a specific intent (e.g. "confirm:create_project").
 //
-// Panics if intent is not a known IntentType — this is a programmer-error
-// invariant (the producer is always a static keyboard builder calling with
-// a literal IntentXxx constant). Idiom mirrors regexp.MustCompile / template.Must.
+// Panics if intent is not a known IntentType, or is IntentUnknown — the
+// classifier emits IntentUnknown for unparseable input, and there is no
+// session action to confirm for it. Programmer-error idiom mirrors
+// regexp.MustCompile / template.Must.
 func ConfirmCallback(intent IntentType) string {
-	if !intent.IsValid() {
+	if !intent.IsValid() || intent == IntentUnknown {
 		panic(fmt.Sprintf("domain.ConfirmCallback: invalid IntentType %q", string(intent)))
 	}
 	return CallbackActionConfirm + ":" + string(intent)
