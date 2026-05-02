@@ -104,7 +104,7 @@ type EstimationManager interface {
 	// intent.
 	//
 	// May return ErrFeatureNotImplemented if the adapter is a placeholder
-	// pending real notify-dispatcher integration (tracked in issue #25).
+	// pending real notify-dispatcher integration (tracked in issue #24).
 	// Executor maps this to a "feature in development" user-message.
 	RequestEstimation(ctx context.Context, projectID, userID, taskName string) error
 }
