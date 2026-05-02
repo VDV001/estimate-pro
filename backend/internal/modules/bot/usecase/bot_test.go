@@ -1470,3 +1470,37 @@ func TestProcessCallback_UnlinkedUser(t *testing.T) {
 		t.Error("expected callback query to be answered")
 	}
 }
+
+// TestParseCallbackData verifies that callback_data parsing handles both the
+// canonical "action:payload" format and legacy "cancel" without colon (kept
+// for backward-compatibility with old inline keyboards still in chat history).
+// See issue #20.
+func TestParseCallbackData(t *testing.T) {
+	tests := []struct {
+		name        string
+		in          string
+		wantAction  string
+		wantPayload string
+	}{
+		{"cancel without colon (legacy)", "cancel", "cancel", ""},
+		{"cancel with colon (canonical)", "cancel:", "cancel", ""},
+		{"confirm with payload", "confirm:create_project", "confirm", "create_project"},
+		{"role with payload", "role:developer", "role", "developer"},
+		{"selection with payload", "sel_proj:abc-123", "sel_proj", "abc-123"},
+		{"empty input", "", "", ""},
+		{"action only, no colon", "foo", "foo", ""},
+		{"colon at end, empty payload", "foo:", "foo", ""},
+		{"multiple colons preserve payload after first", "a:b:c", "a", "b:c"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			action, payload := parseCallbackData(tc.in)
+			if action != tc.wantAction {
+				t.Errorf("action = %q, want %q", action, tc.wantAction)
+			}
+			if payload != tc.wantPayload {
+				t.Errorf("payload = %q, want %q", payload, tc.wantPayload)
+			}
+		})
+	}
+}

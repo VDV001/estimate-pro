@@ -507,6 +507,13 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 	return nil
 }
 
+// parseCallbackData splits Telegram inline-keyboard callback data into
+// action and payload using the "action:payload" convention.
+// Stub for issue #20 — implementation to follow in GREEN step.
+func parseCallbackData(_ string) (action, payload string) {
+	return "", ""
+}
+
 // handleSessionMessage processes a text message within an active session flow.
 func (uc *BotUsecase) handleSessionMessage(ctx context.Context, session *domain.BotSession, text string, userID string) error {
 	chatID := session.ChatID
