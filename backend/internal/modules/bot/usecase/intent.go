@@ -192,15 +192,18 @@ func (e *IntentExecutor) addMember(intent *domain.Intent) (string, [][]domain.In
 
 	msg := fmt.Sprintf("Добавить %s в проект «%s». Выберите роль:", email, projectName)
 
+	// Use "sel_role:" prefix so ProcessCallback's existing strings.HasPrefix(
+	// action, "sel_") branch advances the active session with state["role"]=
+	// <value>. Without "sel_" prefix the click silently falls into default.
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
-			{Text: "Developer", CallbackData: "role:developer"},
-			{Text: "Tech Lead", CallbackData: "role:tech_lead"},
+			{Text: "Developer", CallbackData: "sel_role:developer"},
+			{Text: "Tech Lead", CallbackData: "sel_role:tech_lead"},
 		},
 		{
-			{Text: "PM", CallbackData: "role:pm"},
-			{Text: "Observer", CallbackData: "role:observer"},
-			{Text: "Admin", CallbackData: "role:admin"},
+			{Text: "PM", CallbackData: "sel_role:pm"},
+			{Text: "Observer", CallbackData: "sel_role:observer"},
+			{Text: "Admin", CallbackData: "sel_role:admin"},
 		},
 	}
 
