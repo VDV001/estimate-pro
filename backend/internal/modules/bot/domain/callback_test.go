@@ -130,3 +130,144 @@ func TestCallbackKeyIsKnown(t *testing.T) {
 		})
 	}
 }
+
+// TestCallbackActionPredicates — predicate methods routed on the typed
+// action. Each row exercises exactly one of IsCancel / IsConfirm / IsSelect
+// to lock the disjoint partitioning of action space.
+func TestCallbackActionPredicates(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		action    domain.CallbackAction
+		isCancel  bool
+		isConfirm bool
+		isSelect  bool
+	}{
+		{"cancel", domain.CallbackActionCancel, true, false, false},
+		{"confirm", domain.CallbackActionConfirm, false, true, false},
+		{"select role", domain.SelectAction(domain.CallbackKeyRole), false, false, true},
+		{"select proj", domain.SelectAction(domain.CallbackKeyProject), false, false, true},
+		{"select unknown key still IsSelect", domain.CallbackAction("sel_unknown"), false, false, true},
+		{"empty action", domain.CallbackAction(""), false, false, false},
+		{"foreign action", domain.CallbackAction("nuke"), false, false, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.action.IsCancel(); got != tc.isCancel {
+				t.Errorf("IsCancel() = %v, want %v", got, tc.isCancel)
+			}
+			if got := tc.action.IsConfirm(); got != tc.isConfirm {
+				t.Errorf("IsConfirm() = %v, want %v", got, tc.isConfirm)
+			}
+			if got := tc.action.IsSelect(); got != tc.isSelect {
+				t.Errorf("IsSelect() = %v, want %v", got, tc.isSelect)
+			}
+		})
+	}
+}
+
+// TestCallbackActionSelectKey — SelectKey extracts the typed key portion.
+// Returns "" for non-select actions and an unknown CallbackKey for select
+// actions whose key is not in the whitelist (caller must check IsKnown).
+func TestCallbackActionSelectKey(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		action  domain.CallbackAction
+		want    domain.CallbackKey
+		wantOk  bool
+	}{
+		{"select role", domain.SelectAction(domain.CallbackKeyRole), domain.CallbackKeyRole, true},
+		{"select proj", domain.SelectAction(domain.CallbackKeyProject), domain.CallbackKeyProject, true},
+		{"select unknown key", domain.CallbackAction("sel_unknown"), domain.CallbackKey("unknown"), false},
+		{"cancel action", domain.CallbackActionCancel, domain.CallbackKey(""), false},
+		{"confirm action", domain.CallbackActionConfirm, domain.CallbackKey(""), false},
+		{"empty action", domain.CallbackAction(""), domain.CallbackKey(""), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := tc.action.SelectKey()
+			if got != tc.want {
+				t.Errorf("SelectKey() = %q, want %q", string(got), string(tc.want))
+			}
+			if ok := got.IsKnown(); ok != tc.wantOk {
+				t.Errorf("SelectKey().IsKnown() = %v, want %v", ok, tc.wantOk)
+			}
+		})
+	}
+}
+
+// TestParseCallback covers the wire-format split for canonical, malformed,
+// and legacy callback_data values. Legacy "cancel" without colon must still
+// parse to action=cancel for chats that have keyboards from before #20.
+func TestParseCallback(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		in          string
+		wantAction  domain.CallbackAction
+		wantPayload string
+	}{
+		{"cancel without colon (legacy)", "cancel", domain.CallbackActionCancel, ""},
+		{"cancel canonical", "cancel:", domain.CallbackActionCancel, ""},
+		{"confirm with intent payload", "confirm:create_project", domain.CallbackActionConfirm, "create_project"},
+		{"select project with id", "sel_proj:abc-123", domain.SelectAction(domain.CallbackKeyProject), "abc-123"},
+		{"select role with developer", "sel_role:developer", domain.SelectAction(domain.CallbackKeyRole), "developer"},
+		{"empty input", "", domain.CallbackAction(""), ""},
+		{"action only no colon", "foo", domain.CallbackAction("foo"), ""},
+		{"colon at end empty payload", "foo:", domain.CallbackAction("foo"), ""},
+		{"multiple colons preserve payload after first", "a:b:c", domain.CallbackAction("a"), "b:c"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotAction, gotPayload := domain.ParseCallback(tc.in)
+			if gotAction != tc.wantAction {
+				t.Errorf("action = %q, want %q", string(gotAction), string(tc.wantAction))
+			}
+			if gotPayload != tc.wantPayload {
+				t.Errorf("payload = %q, want %q", gotPayload, tc.wantPayload)
+			}
+		})
+	}
+}
+
+// TestParseCallbackRoundTrip — wire-format identity: callback_data emitted
+// by the producer constructors round-trips through ParseCallback to the
+// expected typed action + payload. Locks the producer/parser contract end-to-end.
+func TestParseCallbackRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		emit        string
+		wantAction  domain.CallbackAction
+		wantPayload string
+	}{
+		{"CancelCallback", domain.CancelCallback(), domain.CallbackActionCancel, ""},
+		{"ConfirmCallback create", domain.ConfirmCallback(domain.IntentCreateProject), domain.CallbackActionConfirm, "create_project"},
+		{"SelectCallback role", domain.SelectCallback(domain.CallbackKeyRole, "developer"), domain.SelectAction(domain.CallbackKeyRole), "developer"},
+		{"SelectCallback proj uuid-shape", domain.SelectCallback(domain.CallbackKeyProject, "00000000-0000-0000-0000-000000000001"), domain.SelectAction(domain.CallbackKeyProject), "00000000-0000-0000-0000-000000000001"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotAction, gotPayload := domain.ParseCallback(tc.emit)
+			if gotAction != tc.wantAction {
+				t.Errorf("action = %q, want %q (emit=%q)", string(gotAction), string(tc.wantAction), tc.emit)
+			}
+			if gotPayload != tc.wantPayload {
+				t.Errorf("payload = %q, want %q (emit=%q)", gotPayload, tc.wantPayload, tc.emit)
+			}
+		})
+	}
+}
