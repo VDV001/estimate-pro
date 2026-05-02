@@ -13,6 +13,12 @@ import (
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
 )
 
+// projectListLimit caps how many projects we fetch via ProjectManager.ListByUser
+// when resolving a project by name. 100 covers the vast majority of users; for
+// power-users with more projects, lookup-by-name should move into the
+// repository as a SQL WHERE clause (separate refactor).
+const projectListLimit = 100
+
 // IntentExecutor executes parsed intents by delegating to the appropriate managers.
 type IntentExecutor struct {
 	projects    domain.ProjectManager
@@ -94,27 +100,21 @@ func (e *IntentExecutor) listProjects(ctx context.Context, userID string) (strin
 }
 
 func (e *IntentExecutor) getProjectStatus(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
-	slog.DebugContext(ctx, "IntentExecutor.getProjectStatus", slog.String("project_name", intent.Params["project_name"]))
 	projectName := intent.Params["project_name"]
+	slog.DebugContext(ctx, "IntentExecutor.getProjectStatus", slog.String("project_name", projectName))
 	if projectName == "" {
 		return "Укажите название проекта, чтобы получить его статус.", nil, nil
 	}
 
-	projects, _, err := e.projects.ListByUser(ctx, userID, 100, 0)
+	p, err := e.findProjectByName(ctx, userID, projectName)
 	if err != nil {
-		return "", nil, fmt.Errorf("IntentExecutor.Execute: %w", err)
-	}
-
-	for _, p := range projects {
-		if strings.EqualFold(p.Name, projectName) {
-			emoji := statusEmoji(p.Status)
-			msg := fmt.Sprintf("%s *%s*\nСтатус: %s\nУчастников: %d",
-				emoji, p.Name, p.Status, p.MemberCount)
-			return msg, nil, nil
+		if errors.Is(err, domain.ErrProjectNotFound) {
+			return projectNotFoundMsg(projectName), nil, nil
 		}
+		return "", nil, err
 	}
-
-	return fmt.Sprintf("Проект «%s» не найден. Используйте «мои проекты» для просмотра списка.", projectName), nil, nil
+	emoji := statusEmoji(p.Status)
+	return fmt.Sprintf("%s *%s*\nСтатус: %s\nУчастников: %d", emoji, p.Name, p.Status, p.MemberCount), nil, nil
 }
 
 func (e *IntentExecutor) createProject(intent *domain.Intent) (string, [][]domain.InlineKeyboardButton, error) {
@@ -182,12 +182,16 @@ func (e *IntentExecutor) removeMember(intent *domain.Intent) (string, [][]domain
 }
 
 func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
-	projectID, userMsg, err := e.resolveProjectID(ctx, intent, userID, "Укажите проект, чтобы просмотреть участников.")
+	projectID, err := e.resolveProjectID(ctx, intent, userID)
 	if err != nil {
-		return "", nil, err
-	}
-	if userMsg != "" {
-		return userMsg, nil, nil
+		switch {
+		case errors.Is(err, domain.ErrProjectNotIdentified):
+			return "Укажите проект, чтобы просмотреть участников.", nil, nil
+		case errors.Is(err, domain.ErrProjectNotFound):
+			return projectNotFoundMsg(intent.Params["project_name"]), nil, nil
+		default:
+			return "", nil, err
+		}
 	}
 
 	slog.DebugContext(ctx, "IntentExecutor.listMembers", slog.String("project_id", projectID))
@@ -211,12 +215,16 @@ func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent,
 }
 
 func (e *IntentExecutor) getAggregated(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
-	projectID, userMsg, err := e.resolveProjectID(ctx, intent, userID, "Укажите проект, чтобы получить агрегированную оценку.")
+	projectID, err := e.resolveProjectID(ctx, intent, userID)
 	if err != nil {
-		return "", nil, err
-	}
-	if userMsg != "" {
-		return userMsg, nil, nil
+		switch {
+		case errors.Is(err, domain.ErrProjectNotIdentified):
+			return "Укажите проект, чтобы получить агрегированную оценку.", nil, nil
+		case errors.Is(err, domain.ErrProjectNotFound):
+			return projectNotFoundMsg(intent.Params["project_name"]), nil, nil
+		default:
+			return "", nil, err
+		}
 	}
 
 	slog.DebugContext(ctx, "IntentExecutor.getAggregated", slog.String("project_id", projectID))
@@ -230,39 +238,49 @@ func (e *IntentExecutor) getAggregated(ctx context.Context, intent *domain.Inten
 }
 
 // resolveProjectID resolves a project ID from intent params using two strategies:
-//  1. Direct project_id (callback flow — set by selection inline-button).
-//  2. Lookup by project_name through projects.ListByUser (text-message flow —
+//  1. Direct project_id (callback flow — set by inline-button selection).
+//  2. Lookup by project_name through findProjectByName (text-message flow —
 //     classifier extracts the name from a user phrase).
 //
-// Return contract: exactly one of (projectID, userMsg, err) is non-zero.
-//   - projectID != "" — resolved, proceed.
-//   - userMsg != ""   — present this message to the user with no keyboard.
-//   - err != nil      — internal error, propagate.
-//
-// missingMsg is shown when neither project_id nor project_name is provided.
-func (e *IntentExecutor) resolveProjectID(
-	ctx context.Context,
-	intent *domain.Intent,
-	userID, missingMsg string,
-) (projectID, userMsg string, err error) {
+// Returns sentinel errors so callers can map them to UI messages:
+//   - domain.ErrProjectNotIdentified — neither project_id nor project_name set.
+//   - domain.ErrProjectNotFound       — name does not match any user's project.
+//   - other errors are internal and should propagate.
+func (e *IntentExecutor) resolveProjectID(ctx context.Context, intent *domain.Intent, userID string) (string, error) {
 	if id := intent.Params["project_id"]; id != "" {
-		return id, "", nil
+		return id, nil
 	}
 	name := intent.Params["project_name"]
 	if name == "" {
-		return "", missingMsg, nil
+		return "", domain.ErrProjectNotIdentified
 	}
-	projects, _, listErr := e.projects.ListByUser(ctx, userID, 100, 0)
-	if listErr != nil {
-		slog.ErrorContext(ctx, "IntentExecutor.resolveProjectID: ListByUser failed", slog.String("user_id", userID), slog.String("error", listErr.Error()))
-		return "", "", fmt.Errorf("IntentExecutor.resolveProjectID: %w", listErr)
+	p, err := e.findProjectByName(ctx, userID, name)
+	if err != nil {
+		return "", err
 	}
-	for _, p := range projects {
-		if strings.EqualFold(p.Name, name) {
-			return p.ID, "", nil
+	return p.ID, nil
+}
+
+// findProjectByName looks up a project by name (case-insensitive) among the
+// user's projects. Returns domain.ErrProjectNotFound if no match.
+func (e *IntentExecutor) findProjectByName(ctx context.Context, userID, name string) (*domain.ProjectSummary, error) {
+	projects, _, err := e.projects.ListByUser(ctx, userID, projectListLimit, 0)
+	if err != nil {
+		slog.ErrorContext(ctx, "IntentExecutor.findProjectByName: ListByUser failed", slog.String("user_id", userID), slog.String("error", err.Error()))
+		return nil, fmt.Errorf("IntentExecutor.findProjectByName: %w", err)
+	}
+	for i := range projects {
+		if strings.EqualFold(projects[i].Name, name) {
+			return &projects[i], nil
 		}
 	}
-	return "", fmt.Sprintf("Проект «%s» не найден. Используйте «мои проекты» для просмотра списка.", name), nil
+	return nil, fmt.Errorf("%w: %s", domain.ErrProjectNotFound, name)
+}
+
+// projectNotFoundMsg returns the canonical user-facing message shown when a
+// project_name does not match any of the user's projects.
+func projectNotFoundMsg(name string) string {
+	return fmt.Sprintf("Проект «%s» не найден. Используйте «мои проекты» для просмотра списка.", name)
 }
 
 func (e *IntentExecutor) forgotPassword(ctx context.Context, _ *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
