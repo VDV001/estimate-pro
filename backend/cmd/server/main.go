@@ -446,6 +446,34 @@ func (a *botEstimationAdapter) GetAggregated(ctx context.Context, projectID stri
 	return sb.String(), nil
 }
 
+// SubmitItem creates a single-item estimation for the given task and submits
+// it on behalf of the user. Used by the bot `submit_estimation` intent.
+func (a *botEstimationAdapter) SubmitItem(ctx context.Context, projectID, userID, taskName string, minHours, likelyHours, maxHours float64) error {
+	input := estimationUsecase.CreateInput{
+		ProjectID: projectID,
+		UserID:    userID,
+		Items: []estimationUsecase.CreateItemInput{
+			{TaskName: taskName, MinHours: minHours, LikelyHours: likelyHours, MaxHours: maxHours},
+		},
+	}
+	created, err := a.estimationUC.Create(ctx, input)
+	if err != nil {
+		return fmt.Errorf("botEstimationAdapter.SubmitItem: create: %w", err)
+	}
+	if err := a.estimationUC.Submit(ctx, created.Estimation.ID, userID); err != nil {
+		return fmt.Errorf("botEstimationAdapter.SubmitItem: submit: %w", err)
+	}
+	return nil
+}
+
+// RequestEstimation is a placeholder for the `request_estimation` bot intent.
+// In the current iteration the bot composes a friendly message and the actual
+// notification fan-out to project participants is delegated to the notify
+// dispatcher (out of scope for this adapter — see follow-up issue).
+func (a *botEstimationAdapter) RequestEstimation(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 // botDocumentAdapter implements botDomain.DocumentManager using existing document usecases.
 type botDocumentAdapter struct {
 	documentUC *documentUsecase.DocumentUsecase
