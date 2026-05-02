@@ -373,8 +373,36 @@ func TestExecute(t *testing.T) {
 				"project_name": "Alpha", "task_name": "X",
 				"min_hours": "20", "likely_hours": "12", "max_hours": "8",
 			}},
-			userID:       "user-1",
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
+				},
+			},
+			estimations: &mockEstimationManager{
+				submitItemFn: func(_ context.Context, _, _, _ string, _, _, _ float64) error {
+					return domain.ErrInvalidEstimationHours
+				},
+			},
 			wantContains: []string{"min", "likely", "max"},
+		},
+		{
+			name: "RequestEstimation_FeatureNotImplemented",
+			intent: &domain.Intent{Type: domain.IntentRequestEstimation, Params: map[string]string{
+				"project_name": "Alpha", "task_name": "Auth",
+			}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
+				},
+			},
+			estimations: &mockEstimationManager{
+				requestEstimationFn: func(_ context.Context, _, _, _ string) error {
+					return domain.ErrFeatureNotImplemented
+				},
+			},
+			wantContains: []string{"разработк"},
 		},
 		{
 			name: "SubmitEstimation_ProjectNotFound",
