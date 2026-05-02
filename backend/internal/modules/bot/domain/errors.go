@@ -52,4 +52,16 @@ var (
 	// ErrProjectNotFound is returned when a project_name does not match any
 	// project owned by or shared with the user.
 	ErrProjectNotFound = errors.New("bot: project not found")
+
+	// ErrInvalidEstimationHours is returned by EstimationManager.SubmitItem
+	// when min/likely/max hours violate the domain invariant
+	// (min ≤ likely ≤ max, all ≥ 0). Bot adapters wrap estimation/domain's
+	// ErrInvalidHours into this sentinel so the bot module stays decoupled
+	// from estimation/domain.
+	ErrInvalidEstimationHours = errors.New("bot: invalid estimation hours")
+
+	// ErrFeatureNotImplemented is returned by manager methods whose adapter
+	// is a placeholder pending follow-up integration. Executor maps it to
+	// a «feature in development» message — never silent success.
+	ErrFeatureNotImplemented = errors.New("bot: feature not implemented")
 )
