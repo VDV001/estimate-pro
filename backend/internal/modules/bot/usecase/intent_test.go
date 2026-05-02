@@ -310,6 +310,106 @@ func TestExecute(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "SubmitEstimation_Success",
+			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
+				"project_name": "Alpha", "task_name": "Login",
+				"min_hours": "8", "likely_hours": "12", "max_hours": "20",
+			}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
+				},
+			},
+			estimations: &mockEstimationManager{
+				submitItemFn: func(_ context.Context, projectID, uid, taskName string, minH, likelyH, maxH float64) error {
+					if projectID != "p1" || uid != "user-1" || taskName != "Login" {
+						return errors.New("wrong args: " + projectID + "," + uid + "," + taskName)
+					}
+					if minH != 8 || likelyH != 12 || maxH != 20 {
+						return errors.New("wrong hours")
+					}
+					return nil
+				},
+			},
+			wantContains: []string{"Login", "Alpha", "отправлена"},
+		},
+		{
+			name: "SubmitEstimation_NoProjectName",
+			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
+				"task_name": "X", "min_hours": "1", "likely_hours": "2", "max_hours": "3",
+			}},
+			userID:       "user-1",
+			wantContains: []string{"Укажите", "проект"},
+		},
+		{
+			name: "SubmitEstimation_NoTaskName",
+			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
+				"project_name": "Alpha", "min_hours": "1", "likely_hours": "2", "max_hours": "3",
+			}},
+			userID:       "user-1",
+			wantContains: []string{"задач"},
+		},
+		{
+			name: "SubmitEstimation_MissingHours",
+			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
+				"project_name": "Alpha", "task_name": "X", "min_hours": "5",
+			}},
+			userID:       "user-1",
+			wantContains: []string{"час"},
+		},
+		{
+			name: "SubmitEstimation_NonNumericHours",
+			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
+				"project_name": "Alpha", "task_name": "X",
+				"min_hours": "abc", "likely_hours": "12", "max_hours": "20",
+			}},
+			userID:       "user-1",
+			wantContains: []string{"числ"},
+		},
+		{
+			name: "SubmitEstimation_InvariantViolated",
+			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
+				"project_name": "Alpha", "task_name": "X",
+				"min_hours": "20", "likely_hours": "12", "max_hours": "8",
+			}},
+			userID:       "user-1",
+			wantContains: []string{"min", "likely", "max"},
+		},
+		{
+			name: "SubmitEstimation_ProjectNotFound",
+			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
+				"project_name": "Ghost", "task_name": "X",
+				"min_hours": "1", "likely_hours": "2", "max_hours": "3",
+			}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{}, 0, nil
+				},
+			},
+			wantContains: []string{"Ghost", "не найден"},
+		},
+		{
+			name: "SubmitEstimation_SubmitError",
+			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
+				"project_name": "Alpha", "task_name": "X",
+				"min_hours": "1", "likely_hours": "2", "max_hours": "3",
+			}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
+				},
+			},
+			estimations: &mockEstimationManager{
+				submitItemFn: func(_ context.Context, _, _, _ string, _, _, _ float64) error {
+					return errors.New("submit failed")
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name:   "GetAggregated_Error",
 			intent: &domain.Intent{Type: domain.IntentGetAggregated, Params: map[string]string{"project_id": "p1"}},
 			userID: "user-1",
