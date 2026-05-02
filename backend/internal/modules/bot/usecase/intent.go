@@ -55,6 +55,8 @@ func (e *IntentExecutor) Execute(ctx context.Context, intent *domain.Intent, use
 		return e.getProjectStatus(ctx, intent, userID)
 	case domain.IntentCreateProject:
 		return e.createProject(intent)
+	case domain.IntentUpdateProject:
+		return e.updateProject(ctx, intent, userID)
 	case domain.IntentAddMember:
 		return e.addMember(intent)
 	case domain.IntentRemoveMember:
@@ -134,6 +136,43 @@ func (e *IntentExecutor) createProject(intent *domain.Intent) (string, [][]domai
 	}
 
 	return msg, keyboard, nil
+}
+
+func (e *IntentExecutor) updateProject(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	projectName := intent.Params["project_name"]
+	if projectName == "" {
+		return "Укажите проект, который нужно обновить.", nil, nil
+	}
+	newName := intent.Params["new_name"]
+	description := intent.Params["description"]
+	if newName == "" && description == "" {
+		return "Укажите что обновить: новое имя проекта или описание.", nil, nil
+	}
+
+	p, err := e.findProjectByName(ctx, userID, projectName)
+	if err != nil {
+		if errors.Is(err, domain.ErrProjectNotFound) {
+			return projectNotFoundMsg(projectName), nil, nil
+		}
+		return "", nil, err
+	}
+
+	var msg strings.Builder
+	fmt.Fprintf(&msg, "Обновить проект «%s»?\n", p.Name)
+	if newName != "" {
+		fmt.Fprintf(&msg, "Новое имя: %s\n", newName)
+	}
+	if description != "" {
+		fmt.Fprintf(&msg, "Описание: %s\n", description)
+	}
+
+	keyboard := [][]domain.InlineKeyboardButton{
+		{
+			{Text: "Подтвердить", CallbackData: "confirm:update_project"},
+			{Text: "Отмена", CallbackData: "cancel:"},
+		},
+	}
+	return msg.String(), keyboard, nil
 }
 
 func (e *IntentExecutor) addMember(intent *domain.Intent) (string, [][]domain.InlineKeyboardButton, error) {
