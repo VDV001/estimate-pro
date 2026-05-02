@@ -185,10 +185,53 @@ func TestExecute(t *testing.T) {
 			wantContains: []string{"120ч", "80ч", "160ч"},
 		},
 		{
-			name:   "GetAggregated_NoProjectID",
+			name:   "GetAggregated_NoIdentifier",
 			intent: &domain.Intent{Type: domain.IntentGetAggregated, Params: map[string]string{}},
 			userID: "user-1",
-			wantContains: []string{"Выберите проект"},
+			wantContains: []string{"Укажите проект"},
+		},
+		{
+			name:   "GetAggregated_ByName_Success",
+			intent: &domain.Intent{Type: domain.IntentGetAggregated, Params: map[string]string{"project_name": "Alpha"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{
+						{ID: "p1", Name: "Alpha", Status: "active"},
+					}, 1, nil
+				},
+			},
+			estimations: &mockEstimationManager{
+				getAggregatedFn: func(_ context.Context, projectID string) (string, error) {
+					if projectID != "p1" {
+						return "", errors.New("wrong project_id passed: " + projectID)
+					}
+					return "Общая оценка: 120ч", nil
+				},
+			},
+			wantContains: []string{"120ч"},
+		},
+		{
+			name:   "GetAggregated_ByName_NotFound",
+			intent: &domain.Intent{Type: domain.IntentGetAggregated, Params: map[string]string{"project_name": "Ghost"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{}, 0, nil
+				},
+			},
+			wantContains: []string{"Ghost", "не найден"},
+		},
+		{
+			name:   "GetAggregated_ByName_ListProjectsError",
+			intent: &domain.Intent{Type: domain.IntentGetAggregated, Params: map[string]string{"project_name": "Alpha"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return nil, 0, errors.New("db error")
+				},
+			},
+			wantErr: true,
 		},
 		{
 			name:   "GetAggregated_Error",
@@ -296,13 +339,69 @@ func TestExecute(t *testing.T) {
 			wantContains: []string{"нет участников"},
 		},
 		{
-			name: "ListMembers_NoProjectID",
+			name: "ListMembers_NoIdentifier",
 			intent: &domain.Intent{
 				Type:   domain.IntentListMembers,
 				Params: map[string]string{},
 			},
 			userID:       "user-1",
-			wantContains: []string{"Выберите проект"},
+			wantContains: []string{"Укажите проект"},
+		},
+		{
+			name: "ListMembers_ByName_Success",
+			intent: &domain.Intent{
+				Type:   domain.IntentListMembers,
+				Params: map[string]string{"project_name": "Alpha"},
+			},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{
+						{ID: "p1", Name: "Alpha", Status: "active"},
+					}, 1, nil
+				},
+			},
+			members: &mockMemberManager{
+				listFn: func(_ context.Context, projectID string) ([]domain.MemberSummary, error) {
+					if projectID != "p1" {
+						return nil, errors.New("wrong project_id passed: " + projectID)
+					}
+					return []domain.MemberSummary{
+						{UserID: "u1", UserName: "Alice", Role: "admin"},
+					}, nil
+				},
+			},
+			wantContains: []string{"Alice", "admin", "👥"},
+		},
+		{
+			name: "ListMembers_ByName_NotFound",
+			intent: &domain.Intent{
+				Type:   domain.IntentListMembers,
+				Params: map[string]string{"project_name": "Ghost"},
+			},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{
+						{ID: "p1", Name: "Alpha", Status: "active"},
+					}, 1, nil
+				},
+			},
+			wantContains: []string{"Ghost", "не найден"},
+		},
+		{
+			name: "ListMembers_ByName_ListProjectsError",
+			intent: &domain.Intent{
+				Type:   domain.IntentListMembers,
+				Params: map[string]string{"project_name": "Alpha"},
+			},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return nil, 0, errors.New("db error")
+				},
+			},
+			wantErr: true,
 		},
 		{
 			name: "ListMembers_Error",
