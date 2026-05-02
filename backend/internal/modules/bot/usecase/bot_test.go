@@ -205,7 +205,9 @@ func (m *mockMemberManager) List(ctx context.Context, projectID string) ([]domai
 }
 
 type mockEstimationManager struct {
-	GetAggregatedFn func(ctx context.Context, projectID string) (string, error)
+	GetAggregatedFn     func(ctx context.Context, projectID string) (string, error)
+	SubmitItemFn        func(ctx context.Context, projectID, userID, taskName string, minHours, likelyHours, maxHours float64) error
+	RequestEstimationFn func(ctx context.Context, projectID, userID, taskName string) error
 }
 
 func (m *mockEstimationManager) GetAggregated(ctx context.Context, projectID string) (string, error) {
@@ -213,6 +215,20 @@ func (m *mockEstimationManager) GetAggregated(ctx context.Context, projectID str
 		return m.GetAggregatedFn(ctx, projectID)
 	}
 	return "", nil
+}
+
+func (m *mockEstimationManager) SubmitItem(ctx context.Context, projectID, userID, taskName string, minHours, likelyHours, maxHours float64) error {
+	if m.SubmitItemFn != nil {
+		return m.SubmitItemFn(ctx, projectID, userID, taskName, minHours, likelyHours, maxHours)
+	}
+	return nil
+}
+
+func (m *mockEstimationManager) RequestEstimation(ctx context.Context, projectID, userID, taskName string) error {
+	if m.RequestEstimationFn != nil {
+		return m.RequestEstimationFn(ctx, projectID, userID, taskName)
+	}
+	return nil
 }
 
 type mockDocumentManager struct {

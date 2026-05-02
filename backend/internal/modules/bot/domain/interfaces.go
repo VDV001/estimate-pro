@@ -90,6 +90,15 @@ type MemberManager interface {
 // EstimationManager provides estimation operations for the bot module.
 type EstimationManager interface {
 	GetAggregated(ctx context.Context, projectID string) (string, error)
+	// SubmitItem creates a single-item estimation for the given task and
+	// immediately submits it on behalf of the user. Used by the bot
+	// `submit_estimation` intent (e.g. "Оценка для задачи X в проекте Y:
+	// min 8, likely 12, max 20").
+	SubmitItem(ctx context.Context, projectID, userID, taskName string, minHours, likelyHours, maxHours float64) error
+	// RequestEstimation marks a task as needing estimation in the given
+	// project, notifying participants. Used by the bot `request_estimation`
+	// intent.
+	RequestEstimation(ctx context.Context, projectID, userID, taskName string) error
 }
 
 // DocumentManager provides document operations for the bot module.
