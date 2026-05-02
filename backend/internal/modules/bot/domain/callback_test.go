@@ -54,6 +54,11 @@ func TestConfirmCallbackPanicsOnInvalidIntent(t *testing.T) {
 	}{
 		{"empty", domain.IntentType("")},
 		{"unknown literal", domain.IntentType("not_a_real_intent")},
+		// IntentUnknown passes IntentType.IsValid() but is semantically
+		// unconfirmable — the classifier emits it for unparseable user input,
+		// and a "confirm:unknown" wire-string indicates the caller wired the
+		// keyboard against the wrong intent. Reject at construction.
+		{"intent_unknown", domain.IntentUnknown},
 	}
 
 	for _, tc := range cases {
