@@ -525,6 +525,58 @@ func TestExecute(t *testing.T) {
 	}
 }
 
+// TestExecute_CreateProject_CancelButtonUsesColonFormat verifies the cancel
+// button in createProject's keyboard uses the canonical "cancel:" format
+// (action:payload convention) rather than legacy "cancel" without colon.
+// See issue #20.
+func TestExecute_CreateProject_CancelButtonUsesColonFormat(t *testing.T) {
+	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil)
+	intent := &domain.Intent{
+		Type:   domain.IntentCreateProject,
+		Params: map[string]string{"name": "X"},
+	}
+	_, keyboard, err := executor.Execute(t.Context(), intent, "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cancelData := findButtonCallbackData(keyboard, "Отмена")
+	if cancelData != "cancel:" {
+		t.Errorf("CreateProject cancel button: CallbackData = %q, want %q", cancelData, "cancel:")
+	}
+}
+
+// TestExecute_RemoveMember_CancelButtonUsesColonFormat verifies the cancel
+// button in removeMember's keyboard uses the canonical "cancel:" format.
+// See issue #20.
+func TestExecute_RemoveMember_CancelButtonUsesColonFormat(t *testing.T) {
+	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil)
+	intent := &domain.Intent{
+		Type:   domain.IntentRemoveMember,
+		Params: map[string]string{"project_name": "Alpha", "user_name": "John"},
+	}
+	_, keyboard, err := executor.Execute(t.Context(), intent, "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cancelData := findButtonCallbackData(keyboard, "Отмена")
+	if cancelData != "cancel:" {
+		t.Errorf("RemoveMember cancel button: CallbackData = %q, want %q", cancelData, "cancel:")
+	}
+}
+
+// findButtonCallbackData returns the CallbackData of the first button matching
+// text, or empty string if not found.
+func findButtonCallbackData(keyboard [][]domain.InlineKeyboardButton, text string) string {
+	for _, row := range keyboard {
+		for _, btn := range row {
+			if btn.Text == text {
+				return btn.CallbackData
+			}
+		}
+	}
+	return ""
+}
+
 func TestNeedsSession(t *testing.T) {
 	tests := []struct {
 		intent domain.IntentType
