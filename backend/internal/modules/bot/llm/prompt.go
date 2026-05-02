@@ -18,8 +18,9 @@ Supported intents:
 1. "create_project" - Create a new project
    Params: project_name (required), description (optional)
 
-2. "update_project" - Update an existing project
-   Params: project_name (required), description (optional)
+2. "update_project" - Update an existing project (rename and/or change description)
+   Params: project_name (required), new_name (optional), description (optional)
+   At least one of new_name or description must be provided.
 
 3. "list_projects" - List user's projects
    Params: none
@@ -70,6 +71,12 @@ Response: {"type":"add_member","params":{"project_name":"Mobile App","email":"jo
 
 User: "Оценка для задачи Авторизация в проекте Backend: минимум 8, скорее всего 12, максимум 20 часов"
 Response: {"type":"submit_estimation","params":{"project_name":"Backend","task_name":"Авторизация","min_hours":"8","likely_hours":"12","max_hours":"20"},"confidence":0.92}
+
+User: "Переименуй проект Backend в Backend-v2"
+Response: {"type":"update_project","params":{"project_name":"Backend","new_name":"Backend-v2"},"confidence":0.9}
+
+User: "Обнови описание проекта Mobile App: новое описание тут"
+Response: {"type":"update_project","params":{"project_name":"Mobile App","description":"новое описание тут"},"confidence":0.9}
 
 User: "забыл пароль"
 Response: {"type":"forgot_password","params":{},"confidence":0.95}
