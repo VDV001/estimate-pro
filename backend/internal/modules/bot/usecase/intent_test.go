@@ -1027,6 +1027,32 @@ func TestExecute_RemoveMember_CancelButtonUsesColonFormat(t *testing.T) {
 	}
 }
 
+// TestExecute_AddMember_RoleButtonsUseSelPrefix verifies that role-selection
+// buttons in addMember's keyboard use canonical "sel_role:*" CallbackData.
+// Pre-fix the callback was "role:developer" → ProcessCallback default →
+// silent skip → flow hung until session TTL. See issue #26 (found via #21).
+func TestExecute_AddMember_RoleButtonsUseSelPrefix(t *testing.T) {
+	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil)
+	intent := &domain.Intent{
+		Type:   domain.IntentAddMember,
+		Params: map[string]string{"project_name": "Backend", "email": "dev@example.com"},
+	}
+	_, keyboard, err := executor.Execute(t.Context(), intent, "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, role := range []string{"Developer", "Tech Lead", "PM", "Observer", "Admin"} {
+		got := findButtonCallbackData(keyboard, role)
+		if got == "" {
+			t.Errorf("button %q not found in keyboard", role)
+			continue
+		}
+		if !strings.HasPrefix(got, "sel_role:") {
+			t.Errorf("button %q: CallbackData = %q, want prefix \"sel_role:\"", role, got)
+		}
+	}
+}
+
 // TestExecute_AllValidIntentsHaveCase is a defensive gate that protects
 // against the regression that caused issue #19: an intent declared in
 // IntentType.IsValid() but missing a case in Execute switch falls through

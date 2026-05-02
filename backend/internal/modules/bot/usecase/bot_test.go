@@ -1128,6 +1128,75 @@ func TestProcessMessage_AddMemberSession(t *testing.T) {
 	}
 }
 
+// TestProcessCallback_AddMember_RoleSelectionAdvancesSession verifies that
+// clicking a role button (e.g. "Developer") in the add_member keyboard
+// advances the active session with role=<value>, so a follow-up confirm
+// or executeSessionAction has the role available.
+//
+// Pre-fix: callback was "role:developer", action="role" had no case in
+// ProcessCallback switch → silent ignore → session not advanced → flow
+// hangs until 10-min TTL. See issue #26.
+//
+// Post-fix: callback is "sel_role:developer", existing strings.HasPrefix(
+// action, "sel_") branch advances session with state["role"]="developer".
+func TestProcessCallback_AddMember_RoleSelectionAdvancesSession(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	stateJSON, _ := json.Marshal(map[string]string{
+		"project_name": "Backend",
+		"email":        "dev@example.com",
+	})
+	activeSession := &domain.BotSession{
+		ID:        "ses-1",
+		ChatID:    "100",
+		UserID:    "user-1",
+		Intent:    domain.IntentAddMember,
+		State:     stateJSON,
+		Step:      0,
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+	}
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return activeSession, nil
+	}
+
+	var advancedState map[string]string
+	deps.sessionRepo.UpdateFn = func(_ context.Context, s *domain.BotSession) error {
+		_ = json.Unmarshal(s.State, &advancedState)
+		return nil
+	}
+	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error { return nil }
+
+	uc := deps.build()
+
+	err := uc.ProcessCallback(t.Context(), &tg.Update{
+		CallbackQuery: &tg.CallbackQuery{
+			ID:      "cb-role",
+			From:    &tg.User{ID: 12345},
+			Message: &tg.Message{Chat: &tg.Chat{ID: 100, Type: "private"}},
+			Data:    "sel_role:developer",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if advancedState == nil {
+		t.Fatal("expected session.Update to be called (sel_role: should advance session)")
+	}
+	if advancedState["role"] != "developer" {
+		t.Errorf("session state[\"role\"] = %q, want \"developer\"", advancedState["role"])
+	}
+	// Project_name and email from initial state should be preserved.
+	if advancedState["project_name"] != "Backend" {
+		t.Errorf("project_name lost during advance: %q", advancedState["project_name"])
+	}
+	if advancedState["email"] != "dev@example.com" {
+		t.Errorf("email lost during advance: %q", advancedState["email"])
+	}
+}
+
 func TestProcessCallback_Confirm(t *testing.T) {
 	deps := newTestBotDeps()
 
