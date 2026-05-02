@@ -620,6 +620,13 @@ func (uc *BotUsecase) executeSessionAction(ctx context.Context, session *domain.
 	case domain.IntentCreateProject:
 		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: creating project", slog.String("name", state["name"]))
 		_, err = uc.executor.projects.Create(ctx, "", state["name"], state["description"], userID)
+	case domain.IntentUpdateProject:
+		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: updating project", slog.String("project_name", state["project_name"]))
+		var p *domain.ProjectSummary
+		p, err = uc.executor.findProjectByName(ctx, userID, state["project_name"])
+		if err == nil {
+			err = uc.executor.projects.Update(ctx, p.ID, state["new_name"], state["description"], userID)
+		}
 	case domain.IntentAddMember:
 		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: adding member", slog.String("project_id", state["project_id"]), slog.String("email", state["email"]))
 		err = uc.executor.members.AddByEmail(ctx, state["project_id"], state["email"], state["role"], userID)
