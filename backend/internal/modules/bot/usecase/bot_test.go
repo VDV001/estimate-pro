@@ -1256,6 +1256,92 @@ func TestProcessCallback_SelectUnknownKey_DoesNotAdvance(t *testing.T) {
 	}
 }
 
+// TestProcessCallback_AddMember_AutoExecutesAfterRoleSelection verifies that
+// after the user clicks a role button in the add_member flow, the bot does
+// NOT just advance the session and stall — it must immediately resolve the
+// project_name → project_id and call MemberManager.AddByEmail with the
+// resolved id. Without auto-execute the user-visible flow hangs until the
+// 10-min session TTL. See issue #27.
+//
+// Pre-fix: ProcessCallback advances session with {role: developer}, returns
+// nil, and the user sees nothing happen. executeSessionAction never runs
+// because there is no Confirm step in the AddMember flow.
+//
+// Post-fix: ProcessCallback advances + immediately executes the AddMember
+// session action. executeSessionAction resolves project_name through
+// findProjectByName (state["project_id"] is empty in the AddMember flow —
+// the existing code reads it directly and produces an empty-UUID error).
+func TestProcessCallback_AddMember_AutoExecutesAfterRoleSelection(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	stateJSON, _ := json.Marshal(map[string]string{
+		"project_name": "Backend",
+		"email":        "dev@example.com",
+	})
+	activeSession := &domain.BotSession{
+		ID:        "ses-1",
+		ChatID:    "100",
+		UserID:    "user-1",
+		Intent:    domain.IntentAddMember,
+		State:     stateJSON,
+		Step:      0,
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+	}
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return activeSession, nil
+	}
+	deps.sessionRepo.UpdateFn = func(_ context.Context, _ *domain.BotSession) error { return nil }
+	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error { return nil }
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, _ string) error { return nil }
+
+	deps.projects.ListByUserFn = func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+		return []domain.ProjectSummary{{ID: "proj-uuid-1", Name: "Backend"}}, 1, nil
+	}
+
+	var addCallProjectID, addCallEmail, addCallRole, addCallCallerID string
+	addCallCount := 0
+	deps.members.AddByEmailFn = func(_ context.Context, projectID, email, role, callerID string) error {
+		addCallCount++
+		addCallProjectID = projectID
+		addCallEmail = email
+		addCallRole = role
+		addCallCallerID = callerID
+		return nil
+	}
+
+	uc := deps.build()
+
+	err := uc.ProcessCallback(t.Context(), &tg.Update{
+		CallbackQuery: &tg.CallbackQuery{
+			ID:      "cb-role",
+			From:    &tg.User{ID: 12345},
+			Message: &tg.Message{Chat: &tg.Chat{ID: 100, Type: "private"}},
+			Data:    "sel_role:developer",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if addCallCount != 1 {
+		t.Fatalf("expected MemberManager.AddByEmail to be called exactly once after role-selection auto-execute, got %d calls", addCallCount)
+	}
+	if addCallProjectID != "proj-uuid-1" {
+		t.Errorf("AddByEmail projectID = %q, want %q (resolved from project_name)", addCallProjectID, "proj-uuid-1")
+	}
+	if addCallEmail != "dev@example.com" {
+		t.Errorf("AddByEmail email = %q, want %q", addCallEmail, "dev@example.com")
+	}
+	if addCallRole != "developer" {
+		t.Errorf("AddByEmail role = %q, want %q", addCallRole, "developer")
+	}
+	if addCallCallerID != "user-1" {
+		t.Errorf("AddByEmail callerID = %q, want %q", addCallCallerID, "user-1")
+	}
+}
+
 func TestProcessCallback_Confirm(t *testing.T) {
 	deps := newTestBotDeps()
 
