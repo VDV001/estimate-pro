@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.12.3-blue)
+![Version](https://img.shields.io/badge/version-0.12.4-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,12 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.12.3`**
+**Текущая версия: `0.12.4`**
 
 ### Changelog
+
+#### v0.12.4 (2026-05-03)
+- fix(bot/usecase): `ProcessCallback` отвергает callback'и с unknown `sel_<key>` — раньше parser-side принимал любой `sel_*` префикс и пушил его как произвольное поле в session state. Producer-side helpers (`SelectCallback`/`SelectAction`) уже паникуют на unknown `CallbackKey`, теперь parser симметричен: warn-log + `AnswerCallbackQuery` + early return (#35).
 
 #### v0.12.3 (2026-05-02)
 - refactor(bot): typed `CallbackAction` + `ParseCallback` для type-safe парсера. ProcessCallback теперь идёт через `action.IsCancel()`/`IsConfirm()`/`IsSelect()`/`SelectKey()`, никаких `strings.HasPrefix`/`TrimPrefix` для callback-протокола. `SelectAction` возвращает `CallbackAction` (#31, #32).
