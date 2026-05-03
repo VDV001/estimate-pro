@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.12.6-blue)
+![Version](https://img.shields.io/badge/version-0.12.7-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,12 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.12.6`**
+**Текущая версия: `0.12.7`**
 
 ### Changelog
+
+#### v0.12.7 (2026-05-04)
+- chore(bot): закрыты blind spots в логировании. `bot/repository/postgres.go` — 15 error-path'ей теперь дополнены `slog.ErrorContext` (Session/UserLink/LLMConfig/Memory/UserPrefs CRUD); следуют существующему in-file pattern (Memory.Save и UserLink.GetByTelegramUserID уже логировали так же). `bot/usecase/session.go:Advance` — добавлен log на `GetState` unmarshal failure. Поведение не меняется, только наблюдаемость.
 
 #### v0.12.6 (2026-05-03)
 - feat(bot/notify): intent `request_estimation` теперь реально шлёт уведомления участникам проекта через notify dispatcher вместо «функция в разработке». Добавлен `EventEstimationRequested` (`notify/domain`), новый sync-метод `Dispatcher.RequestEstimation(ctx, projectID, userID, taskName)`, `botEstimationAdapter` в композиционном корне форвардит вызов (#24).
