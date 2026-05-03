@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.12.4-blue)
+![Version](https://img.shields.io/badge/version-0.12.5-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,14 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.12.4`**
+**Текущая версия: `0.12.5`**
 
 ### Changelog
+
+#### v0.12.5 (2026-05-03)
+- fix(bot/usecase): добавление участника снова работает end-to-end. После клика по кнопке роли в `add_member` сессия теперь автоматически выполняется (раньше зависала до 10-минутного TTL — нет шага Confirm). `executeSessionAction` для AddMember/RemoveMember резолвит `project_name → project_id` через `findProjectByName` (и `user_name → user_id` через новый `findMemberByName`) — ранее читался пустой `state["project_id"]`, AddByEmail/Remove падали на UUID-валидации (#27).
+- fix(bot/usecase): ошибки `ErrProjectNotFound` и нового `ErrMemberNotFound` маппятся в named-сообщения (`Проект «X» не найден.`, `Участник «X» не найден.`) вместо обезличенного `Ошибка...` — `sessionActionErrorMessage` helper держит контекст консистентным с intent.go Execute-flow.
+- chore(bot/domain): новый sentinel `ErrMemberNotFound` для resolve user_name по списку участников (симметрично `ErrProjectNotFound`).
 
 #### v0.12.4 (2026-05-03)
 - fix(bot/usecase): `ProcessCallback` отвергает callback'и с unknown `sel_<key>` — раньше parser-side принимал любой `sel_*` префикс и пушил его как произвольное поле в session state. Producer-side helpers (`SelectCallback`/`SelectAction`) уже паникуют на unknown `CallbackKey`, теперь parser симметричен: warn-log + `AnswerCallbackQuery` + early return (#35).
