@@ -10,15 +10,26 @@ import (
 	"github.com/VDV001/estimate-pro/backend/internal/modules/notify/usecase"
 )
 
+// eventMeta describes how to render a notification for each domain event.
+// MessageFn accepts variadic extra args so events that need additional context
+// (e.g. task name for estimation.requested) can pass it without forcing every
+// existing event to deal with the extra parameter.
 var eventMeta = map[string]struct {
 	EventType domain.EventType
 	Title     string
-	MessageFn func(name string) string
+	MessageFn func(name string, args ...string) string
 }{
-	"member.added":          {domain.EventMemberAdded, "member.added", func(name string) string { return fmt.Sprintf("%s added to project", name) }},
-	"document.uploaded":     {domain.EventDocumentUploaded, "document.uploaded", func(name string) string { return fmt.Sprintf("%s uploaded a document", name) }},
-	"estimation.submitted":  {domain.EventEstimationSubmitted, "estimation.submitted", func(name string) string { return fmt.Sprintf("%s submitted an estimation", name) }},
-	"estimation.aggregated": {domain.EventEstimationAggregated, "estimation.aggregated", func(name string) string { return fmt.Sprintf("Estimation aggregated by %s", name) }},
+	"member.added":          {domain.EventMemberAdded, "member.added", func(name string, _ ...string) string { return fmt.Sprintf("%s added to project", name) }},
+	"document.uploaded":     {domain.EventDocumentUploaded, "document.uploaded", func(name string, _ ...string) string { return fmt.Sprintf("%s uploaded a document", name) }},
+	"estimation.submitted":  {domain.EventEstimationSubmitted, "estimation.submitted", func(name string, _ ...string) string { return fmt.Sprintf("%s submitted an estimation", name) }},
+	"estimation.aggregated": {domain.EventEstimationAggregated, "estimation.aggregated", func(name string, _ ...string) string { return fmt.Sprintf("Estimation aggregated by %s", name) }},
+	"estimation.requested": {domain.EventEstimationRequested, "estimation.requested", func(name string, args ...string) string {
+		var taskName string
+		if len(args) > 0 {
+			taskName = args[0]
+		}
+		return fmt.Sprintf("%s requested estimation for task %s", name, taskName)
+	}},
 }
 
 // UserNameLookup resolves user ID to display name.
@@ -72,20 +83,23 @@ func (d *Dispatcher) HandleEvent(eventType, projectID, userID string) {
 // `request_estimation` intent — caller blocks on the result so a failed
 // dispatch surfaces to the user instead of being silently fire-and-forget.
 //
-// Falls back to the raw user ID when the name lookup misses, matching the
-// behaviour of the async HandleEvent path.
+// Title and message templates come from eventMeta — same source of truth as
+// the async HandleEvent path. Falls back to the raw user ID when the name
+// lookup misses, matching dispatcher.go:52-55.
 func (d *Dispatcher) RequestEstimation(ctx context.Context, projectID, userID, taskName string) error {
+	meta := eventMeta[string(domain.EventEstimationRequested)]
+
 	name := userID
 	if n, err := d.lookup.GetName(ctx, userID); err == nil {
 		name = n
 	}
 
 	return d.uc.Dispatch(ctx, domain.NotifyEvent{
-		EventType: domain.EventEstimationRequested,
+		EventType: meta.EventType,
 		ProjectID: projectID,
 		ActorID:   userID,
-		Title:     string(domain.EventEstimationRequested),
-		Message:   fmt.Sprintf("%s requested estimation for task %s", name, taskName),
+		Title:     meta.Title,
+		Message:   meta.MessageFn(name, taskName),
 	})
 }
 
