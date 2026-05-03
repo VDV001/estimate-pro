@@ -1422,6 +1422,185 @@ func TestProcessCallback_Confirm_RemoveMember(t *testing.T) {
 	}
 }
 
+// TestProcessCallback_AddMember_AutoExecute_ProjectNotFound asserts that
+// when AddMember auto-executes after role-selection but the project_name
+// in state does not match any of the user's projects, the user-facing
+// message names the project ("Проект «X» не найден...") instead of the
+// generic «Ошибка при добавлении участника.» — matches the UX of
+// intent.go Execute-flow which maps ErrProjectNotFound through
+// projectNotFoundMsg. See issue #27 reviewer iter 1.
+func TestProcessCallback_AddMember_AutoExecute_ProjectNotFound(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	stateJSON, _ := json.Marshal(map[string]string{
+		"project_name": "Ghost",
+		"email":        "dev@example.com",
+	})
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return &domain.BotSession{
+			ID: "ses-1", ChatID: "100", UserID: "user-1",
+			Intent: domain.IntentAddMember, State: stateJSON, Step: 0,
+			ExpiresAt: time.Now().Add(5 * time.Minute),
+		}, nil
+	}
+	deps.sessionRepo.UpdateFn = func(_ context.Context, _ *domain.BotSession) error { return nil }
+	deps.sessionRepo.DeleteFn = func(_ context.Context, _ string) error { return nil }
+	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error { return nil }
+
+	deps.projects.ListByUserFn = func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+		return []domain.ProjectSummary{{ID: "proj-uuid-1", Name: "Backend"}}, 1, nil
+	}
+
+	var sentTexts []string
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, text string) error {
+		sentTexts = append(sentTexts, text)
+		return nil
+	}
+
+	uc := deps.build()
+
+	err := uc.ProcessCallback(t.Context(), &tg.Update{
+		CallbackQuery: &tg.CallbackQuery{
+			ID:      "cb-role",
+			From:    &tg.User{ID: 12345},
+			Message: &tg.Message{Chat: &tg.Chat{ID: 100, Type: "private"}},
+			Data:    "sel_role:developer",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, t := range sentTexts {
+		if strings.Contains(t, "«Ghost»") && strings.Contains(t, "не найден") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected SendMessage with project-not-found containing «Ghost» and 'не найден', got: %v", sentTexts)
+	}
+}
+
+// TestProcessCallback_Confirm_RemoveMember_ProjectNotFound asserts the
+// same sentinel-specific UX for the RemoveMember Confirm-flow.
+func TestProcessCallback_Confirm_RemoveMember_ProjectNotFound(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	stateJSON, _ := json.Marshal(map[string]string{
+		"project_name": "Ghost",
+		"user_name":    "Vasya",
+	})
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return &domain.BotSession{
+			ID: "ses-1", ChatID: "100", UserID: "user-1",
+			Intent: domain.IntentRemoveMember, State: stateJSON, Step: 0,
+			ExpiresAt: time.Now().Add(5 * time.Minute),
+		}, nil
+	}
+	deps.sessionRepo.DeleteFn = func(_ context.Context, _ string) error { return nil }
+	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error { return nil }
+
+	deps.projects.ListByUserFn = func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+		return []domain.ProjectSummary{{ID: "proj-uuid-1", Name: "Backend"}}, 1, nil
+	}
+
+	var sentTexts []string
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, text string) error {
+		sentTexts = append(sentTexts, text)
+		return nil
+	}
+
+	uc := deps.build()
+	err := uc.ProcessCallback(t.Context(), &tg.Update{
+		CallbackQuery: &tg.CallbackQuery{
+			ID: "cb-conf", From: &tg.User{ID: 12345},
+			Message: &tg.Message{Chat: &tg.Chat{ID: 100, Type: "private"}},
+			Data:    "confirm:remove_member",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, t := range sentTexts {
+		if strings.Contains(t, "«Ghost»") && strings.Contains(t, "не найден") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected SendMessage with project-not-found, got: %v", sentTexts)
+	}
+}
+
+// TestProcessCallback_Confirm_RemoveMember_MemberNotFound asserts that
+// when the project resolves but the user_name does not match any member,
+// the user-facing message names the absent member ("Участник «X»...")
+// rather than the generic action-failed text. Without this consumer
+// ErrMemberNotFound would be a dead sentinel in domain.
+func TestProcessCallback_Confirm_RemoveMember_MemberNotFound(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	stateJSON, _ := json.Marshal(map[string]string{
+		"project_name": "Backend",
+		"user_name":    "Vasya",
+	})
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return &domain.BotSession{
+			ID: "ses-1", ChatID: "100", UserID: "user-1",
+			Intent: domain.IntentRemoveMember, State: stateJSON, Step: 0,
+			ExpiresAt: time.Now().Add(5 * time.Minute),
+		}, nil
+	}
+	deps.sessionRepo.DeleteFn = func(_ context.Context, _ string) error { return nil }
+	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error { return nil }
+
+	deps.projects.ListByUserFn = func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+		return []domain.ProjectSummary{{ID: "proj-uuid-1", Name: "Backend"}}, 1, nil
+	}
+	deps.members.ListFn = func(_ context.Context, _ string) ([]domain.MemberSummary, error) {
+		return []domain.MemberSummary{{UserID: "user-petya", UserName: "Petya"}}, nil
+	}
+
+	var sentTexts []string
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, text string) error {
+		sentTexts = append(sentTexts, text)
+		return nil
+	}
+
+	uc := deps.build()
+	err := uc.ProcessCallback(t.Context(), &tg.Update{
+		CallbackQuery: &tg.CallbackQuery{
+			ID: "cb-conf", From: &tg.User{ID: 12345},
+			Message: &tg.Message{Chat: &tg.Chat{ID: 100, Type: "private"}},
+			Data:    "confirm:remove_member",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, t := range sentTexts {
+		if strings.Contains(t, "«Vasya»") && strings.Contains(t, "не найден") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected SendMessage with member-not-found containing «Vasya» and 'не найден', got: %v", sentTexts)
+	}
+}
+
 func TestProcessCallback_Confirm(t *testing.T) {
 	deps := newTestBotDeps()
 
