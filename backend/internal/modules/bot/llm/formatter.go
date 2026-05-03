@@ -26,6 +26,19 @@ type Formatter struct {
 	client   *http.Client
 }
 
+// bodyPreviewLen is the maximum number of bytes from a non-2xx response body
+// included in slog attrs. Enough to fingerprint the upstream API error
+// envelope without flooding logs.
+const bodyPreviewLen = 200
+
+// bodyPreview returns the first bodyPreviewLen bytes of b as a string.
+func bodyPreview(b []byte) string {
+	if len(b) > bodyPreviewLen {
+		return string(b[:bodyPreviewLen])
+	}
+	return string(b)
+}
+
 // NewFormatter creates a Formatter for the given LLM provider.
 func NewFormatter(provider domain.LLMProviderType, apiKey, model, baseURL string) *Formatter {
 	return &Formatter{
@@ -119,7 +132,14 @@ func (f *Formatter) callClaude(ctx context.Context, sysPrompt, userMsg string) (
 		return "", fmt.Errorf("llm.Formatter.callClaude: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("llm.Formatter.callClaude: read body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		slog.WarnContext(ctx, "llm.Formatter.callClaude: non-2xx response", slog.Int("status", resp.StatusCode), slog.String("body_preview", bodyPreview(respBody)))
+		return "", fmt.Errorf("llm.Formatter.callClaude: status %d", resp.StatusCode)
+	}
 
 	var result struct {
 		Content []struct {
@@ -162,7 +182,14 @@ func (f *Formatter) callOpenAICompat(ctx context.Context, sysPrompt, userMsg str
 		return "", fmt.Errorf("llm.Formatter.callOpenAI: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("llm.Formatter.callOpenAI: read body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		slog.WarnContext(ctx, "llm.Formatter.callOpenAI: non-2xx response", slog.String("provider", string(f.provider)), slog.Int("status", resp.StatusCode), slog.String("body_preview", bodyPreview(respBody)))
+		return "", fmt.Errorf("llm.Formatter.callOpenAI: status %d", resp.StatusCode)
+	}
 
 	var result struct {
 		Choices []struct {
@@ -203,7 +230,14 @@ func (f *Formatter) callOllama(ctx context.Context, sysPrompt, userMsg string) (
 		return "", fmt.Errorf("llm.Formatter.callOllama: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("llm.Formatter.callOllama: read body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		slog.WarnContext(ctx, "llm.Formatter.callOllama: non-2xx response", slog.Int("status", resp.StatusCode), slog.String("body_preview", bodyPreview(respBody)))
+		return "", fmt.Errorf("llm.Formatter.callOllama: status %d", resp.StatusCode)
+	}
 
 	var result struct {
 		Message struct {
