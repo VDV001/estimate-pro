@@ -488,6 +488,14 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		}
 
 		selKey := action.SelectKey()
+		if !selKey.IsKnown() {
+			slog.WarnContext(ctx, "BotUsecase.ProcessCallback: select with unknown key, ignoring",
+				slog.String("selection_key", string(selKey)),
+				slog.String("payload", payload),
+			)
+			_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
+			return nil
+		}
 		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: advancing session", slog.String("selection_key", string(selKey)), slog.String("payload", payload))
 		_ = uc.sessions.Advance(ctx, session, map[string]string{string(selKey): payload})
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
