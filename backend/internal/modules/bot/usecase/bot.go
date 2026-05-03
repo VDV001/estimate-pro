@@ -455,10 +455,11 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 
 		if err := uc.executeSessionAction(ctx, session, link.UserID); err != nil {
 			slog.ErrorContext(ctx, "BotUsecase.ProcessCallback: executeSessionAction failed", slog.String("session_id", session.ID), slog.String("error", err.Error()))
-			_ = uc.telegram.SendMessage(ctx, chatID, "Ошибка при выполнении действия.")
+			state, _ := uc.sessions.GetState(session)
+			_ = uc.telegram.SendMessage(ctx, chatID, sessionActionErrorMessage(err, state))
 		} else {
 			slog.InfoContext(ctx, "BotUsecase.ProcessCallback: session action completed", slog.String("session_id", session.ID))
-			_ = uc.telegram.SendMessage(ctx, chatID, "Готово!")
+			_ = uc.telegram.SendMessage(ctx, chatID, "Готово!") // TODO(#37): extract UI string
 		}
 		_ = uc.sessions.Complete(ctx, session.ID)
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
@@ -504,9 +505,10 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		if session.Intent == domain.IntentAddMember && selKey == domain.CallbackKeyRole {
 			if execErr := uc.executeSessionAction(ctx, session, link.UserID); execErr != nil {
 				slog.ErrorContext(ctx, "BotUsecase.ProcessCallback: AddMember auto-execute failed", slog.String("session_id", session.ID), slog.String("error", execErr.Error()))
-				_ = uc.telegram.SendMessage(ctx, chatID, "Ошибка при добавлении участника.")
+				state, _ := uc.sessions.GetState(session)
+				_ = uc.telegram.SendMessage(ctx, chatID, sessionActionErrorMessage(execErr, state))
 			} else {
-				_ = uc.telegram.SendMessage(ctx, chatID, "Готово!")
+				_ = uc.telegram.SendMessage(ctx, chatID, "Готово!") // TODO(#37): extract UI string
 			}
 			_ = uc.sessions.Complete(ctx, session.ID)
 		}
@@ -608,6 +610,25 @@ func (uc *BotUsecase) handleAddMemberSession(ctx context.Context, session *domai
 	default:
 		slog.WarnContext(ctx, "BotUsecase.handleAddMemberSession: unexpected step, completing", slog.Int("step", session.Step))
 		return uc.sessions.Complete(ctx, session.ID)
+	}
+}
+
+// sessionActionErrorMessage maps an executeSessionAction error to the
+// user-facing message, prioritising domain sentinels (Project / Member
+// not found) over a generic fallback. Mirrors the sentinel mapping in
+// IntentExecutor.Execute paths so session-flow UX stays consistent with
+// text-flow UX.
+//
+// TODO(#37): UI literals belong in bot/handler/messages — kept inline
+// here while the broader extraction is tracked separately.
+func sessionActionErrorMessage(err error, state map[string]string) string {
+	switch {
+	case errors.Is(err, domain.ErrProjectNotFound):
+		return projectNotFoundMsg(state["project_name"])
+	case errors.Is(err, domain.ErrMemberNotFound):
+		return memberNotFoundMsg(state["user_name"])
+	default:
+		return "Ошибка при выполнении действия."
 	}
 }
 
