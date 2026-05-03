@@ -67,6 +67,29 @@ func (d *Dispatcher) HandleEvent(eventType, projectID, userID string) {
 	}()
 }
 
+// RequestEstimation synchronously dispatches an EventEstimationRequested
+// notification to every project member except the actor. Used by the bot
+// `request_estimation` intent — caller blocks on the result so a failed
+// dispatch surfaces to the user instead of being silently fire-and-forget.
+//
+// Falls back to the raw user ID when the name lookup misses, matching the
+// behaviour of the async HandleEvent path.
+func (d *Dispatcher) RequestEstimation(ctx context.Context, projectID, userID, taskName string) error {
+	name := userID
+	if n, err := d.lookup.GetName(ctx, userID); err == nil {
+		name = n
+	}
+
+	return d.uc.Dispatch(ctx, domain.NotifyEvent{
+		EventType: domain.EventEstimationRequested,
+		ProjectID: projectID,
+		ActorID:   userID,
+		TaskName:  taskName,
+		Title:     string(domain.EventEstimationRequested),
+		Message:   fmt.Sprintf("%s requested estimation for task %s", name, taskName),
+	})
+}
+
 // Shutdown waits for all in-flight dispatches to complete.
 func (d *Dispatcher) Shutdown() {
 	d.wg.Wait()
