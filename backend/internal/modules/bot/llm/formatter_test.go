@@ -5,12 +5,29 @@ package llm
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
 )
+
+// failingReader is an io.ReadCloser that always returns an error from Read.
+// Used to exercise the io.ReadAll error path in callXxx methods.
+type failingReader struct{ err error }
+
+func (r *failingReader) Read(_ []byte) (int, error) { return 0, r.err }
+func (r *failingReader) Close() error               { return nil }
+
+// roundTripFunc lets a test inject any HTTP response without going through a
+// real listener — required for callClaude / callOpenAICompat which have
+// hardcoded provider URLs and cannot be redirected via baseURL.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestFormatReaction(t *testing.T) {
 	tests := []struct {
@@ -263,6 +280,116 @@ func TestFormatter_Format_Claude_Fallback(t *testing.T) {
 	}
 	if result != "raw claude result" {
 		t.Errorf("expected fallback to raw result, got: %s", result)
+	}
+}
+
+// TestFormatter_callOllama_StatusCodes locks in the contract that callOllama
+// must surface non-2xx responses as a typed error containing the status code,
+// instead of silently rendering them as "empty response" via json.Unmarshal of
+// the provider's error envelope.
+func TestFormatter_callOllama_StatusCodes(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		body       string
+		wantErr    bool
+		wantInErr  string // substring expected in the error message when wantErr
+	}{
+		{name: "200_ok", status: http.StatusOK, body: `{"message":{"content":"привет"}}`, wantErr: false},
+		{name: "401_unauthorized", status: http.StatusUnauthorized, body: `{"error":"invalid api key"}`, wantErr: true, wantInErr: "401"},
+		{name: "429_rate_limited", status: http.StatusTooManyRequests, body: `{"error":"rate limit"}`, wantErr: true, wantInErr: "429"},
+		{name: "500_server_error", status: http.StatusInternalServerError, body: `{"error":"internal"}`, wantErr: true, wantInErr: "500"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			f := NewFormatter(domain.ProviderOllama, "", "llama3", srv.URL)
+			_, err := f.callOllama(t.Context(), "sys", "usr")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for status %d, got nil", tc.status)
+				}
+				if !strings.Contains(err.Error(), tc.wantInErr) {
+					t.Errorf("error %q must contain %q so operators can diagnose API failures (instead of generic 'empty response')", err.Error(), tc.wantInErr)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error on status %d: %v", tc.status, err)
+				}
+			}
+		})
+	}
+}
+
+// TestFormatter_callOllama_ReadBodyError locks in propagation of an io.ReadAll
+// failure. Previously respBody, _ := io.ReadAll(...) silently swallowed the
+// error and json.Unmarshal then failed on empty body, masking the real cause.
+func TestFormatter_callOllama_ReadBodyError(t *testing.T) {
+	f := NewFormatter(domain.ProviderOllama, "", "llama3", "http://not-used")
+	f.client = &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       &failingReader{err: errors.New("connection reset")},
+		}, nil
+	})}
+
+	_, err := f.callOllama(t.Context(), "sys", "usr")
+	if err == nil {
+		t.Fatal("expected error from failing body reader, got nil")
+	}
+	if !strings.Contains(err.Error(), "connection reset") {
+		t.Errorf("error must propagate io.ReadAll cause, got %q", err.Error())
+	}
+}
+
+// TestFormatter_callClaude_StatusCheck locks in status-code surfacing for
+// the Claude provider via injected RoundTripper (the production URL is
+// hardcoded to api.anthropic.com so we cannot redirect via baseURL).
+func TestFormatter_callClaude_StatusCheck(t *testing.T) {
+	f := NewFormatter(domain.ProviderClaude, "test-key", "claude-sonnet-4", "")
+	f.client = &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"authentication_error"}}`)),
+		}, nil
+	})}
+
+	_, err := f.callClaude(t.Context(), "sys", "usr")
+	if err == nil {
+		t.Fatal("expected error for 401 from Claude API, got nil")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error %q must contain status 401 (was previously masked as 'empty response')", err.Error())
+	}
+}
+
+// TestFormatter_callOpenAICompat_StatusCheck locks in status-code surfacing
+// for OpenAI / Grok providers via injected RoundTripper.
+func TestFormatter_callOpenAICompat_StatusCheck(t *testing.T) {
+	f := NewFormatter(domain.ProviderOpenAI, "test-key", "gpt-4", "")
+	f.client = &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"rate limit exceeded"}}`)),
+		}, nil
+	})}
+
+	_, err := f.callOpenAICompat(t.Context(), "sys", "usr")
+	if err == nil {
+		t.Fatal("expected error for 429 from OpenAI API, got nil")
+	}
+	if !strings.Contains(err.Error(), "429") {
+		t.Errorf("error %q must contain status 429", err.Error())
 	}
 }
 
