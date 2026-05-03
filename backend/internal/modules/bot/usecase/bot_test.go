@@ -1197,6 +1197,65 @@ func TestProcessCallback_AddMember_RoleSelectionAdvancesSession(t *testing.T) {
 	}
 }
 
+// TestProcessCallback_SelectUnknownKey_DoesNotAdvance verifies that a
+// callback with sel_<unknown>: prefix does not pollute session state by
+// being advanced as an arbitrary key. Producer-side helpers (SelectCallback /
+// SelectAction) panic on unknown CallbackKey, so legitimate keyboards always
+// emit known keys — but parser-side previously accepted anything matching
+// "sel_*", letting forged callbacks or stale keyboards from removed keys
+// through. See issue #35.
+func TestProcessCallback_SelectUnknownKey_DoesNotAdvance(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	stateJSON, _ := json.Marshal(map[string]string{"project_name": "Backend"})
+	activeSession := &domain.BotSession{
+		ID:        "ses-1",
+		ChatID:    "100",
+		UserID:    "user-1",
+		Intent:    domain.IntentAddMember,
+		State:     stateJSON,
+		Step:      0,
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+	}
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return activeSession, nil
+	}
+
+	updateCalled := false
+	deps.sessionRepo.UpdateFn = func(_ context.Context, _ *domain.BotSession) error {
+		updateCalled = true
+		return nil
+	}
+	answerCalled := false
+	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error {
+		answerCalled = true
+		return nil
+	}
+
+	uc := deps.build()
+
+	err := uc.ProcessCallback(t.Context(), &tg.Update{
+		CallbackQuery: &tg.CallbackQuery{
+			ID:      "cb-bogus",
+			From:    &tg.User{ID: 12345},
+			Message: &tg.Message{Chat: &tg.Chat{ID: 100, Type: "private"}},
+			Data:    "sel_bogus:whatever",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updateCalled {
+		t.Error("expected session.Update NOT to be called for unknown selKey, but it was")
+	}
+	if !answerCalled {
+		t.Error("expected AnswerCallbackQuery to be called even on unknown selKey rejection")
+	}
+}
+
 func TestProcessCallback_Confirm(t *testing.T) {
 	deps := newTestBotDeps()
 
