@@ -99,13 +99,9 @@ type EstimationManager interface {
 	// domain invariant (min ≤ likely ≤ max, all ≥ 0). Other errors are
 	// treated as internal.
 	SubmitItem(ctx context.Context, projectID, userID, taskName string, minHours, likelyHours, maxHours float64) error
-	// RequestEstimation marks a task as needing estimation in the given
-	// project, notifying participants. Used by the bot `request_estimation`
-	// intent.
-	//
-	// May return ErrFeatureNotImplemented if the adapter is a placeholder
-	// pending real notify-dispatcher integration (tracked in issue #24).
-	// Executor maps this to a "feature in development" user-message.
+	// RequestEstimation notifies all project participants (excluding the
+	// actor) that an estimation has been requested for the given task.
+	// Used by the bot `request_estimation` intent.
 	RequestEstimation(ctx context.Context, projectID, userID, taskName string) error
 }
 

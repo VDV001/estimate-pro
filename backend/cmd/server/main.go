@@ -238,7 +238,7 @@ func main() {
 		cfg.TelegramBot.BotUsername,
 		&botProjectAdapter{projectUC: projectUC},
 		&botMemberAdapter{memberUC: memberUC},
-		&botEstimationAdapter{estimationUC: estimationUC},
+		&botEstimationAdapter{estimationUC: estimationUC, notifyDispatcher: notifyDispatcher},
 		&botDocumentAdapter{documentUC: documentUC},
 		&botPasswordResetAdapter{authUC: authUC},
 	)
@@ -428,7 +428,8 @@ func (a *botMemberAdapter) List(ctx context.Context, projectID string) ([]botDom
 
 // botEstimationAdapter implements botDomain.EstimationManager using existing estimation usecases.
 type botEstimationAdapter struct {
-	estimationUC *estimationUsecase.EstimationUsecase
+	estimationUC     *estimationUsecase.EstimationUsecase
+	notifyDispatcher *notifyModule.Dispatcher
 }
 
 func (a *botEstimationAdapter) GetAggregated(ctx context.Context, projectID string) (string, error) {
@@ -478,14 +479,11 @@ func (a *botEstimationAdapter) SubmitItem(ctx context.Context, projectID, userID
 	return nil
 }
 
-// RequestEstimation is a placeholder for the bot `request_estimation` intent
-// pending real notify-dispatcher integration tracked in issue #24.
-//
-// Returns botDomain.ErrFeatureNotImplemented (NOT nil) — the executor maps
-// this to a clear "feature in development" message to the user, avoiding
-// silent-success deception (user thinks team was notified when they weren't).
-func (a *botEstimationAdapter) RequestEstimation(_ context.Context, _, _, _ string) error {
-	return botDomain.ErrFeatureNotImplemented
+// RequestEstimation dispatches an EventEstimationRequested notification to all
+// project members except the actor via the notify dispatcher. Used by the bot
+// `request_estimation` intent.
+func (a *botEstimationAdapter) RequestEstimation(ctx context.Context, projectID, userID, taskName string) error {
+	return a.notifyDispatcher.RequestEstimation(ctx, projectID, userID, taskName)
 }
 
 // botDocumentAdapter implements botDomain.DocumentManager using existing document usecases.
