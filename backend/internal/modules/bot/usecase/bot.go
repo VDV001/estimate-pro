@@ -498,6 +498,18 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		}
 		slog.DebugContext(ctx, "BotUsecase.ProcessCallback: advancing session", slog.String("selection_key", string(selKey)), slog.String("payload", payload))
 		_ = uc.sessions.Advance(ctx, session, map[string]string{string(selKey): payload})
+
+		// AddMember has no Confirm step — role-selection is the last user input.
+		// Without auto-execute the flow stalls until 10-min TTL (issue #27).
+		if session.Intent == domain.IntentAddMember && selKey == domain.CallbackKeyRole {
+			if execErr := uc.executeSessionAction(ctx, session, link.UserID); execErr != nil {
+				slog.ErrorContext(ctx, "BotUsecase.ProcessCallback: AddMember auto-execute failed", slog.String("session_id", session.ID), slog.String("error", execErr.Error()))
+				_ = uc.telegram.SendMessage(ctx, chatID, "Ошибка при добавлении участника.")
+			} else {
+				_ = uc.telegram.SendMessage(ctx, chatID, "Готово!")
+			}
+			_ = uc.sessions.Complete(ctx, session.ID)
+		}
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 
 	default:
@@ -620,8 +632,12 @@ func (uc *BotUsecase) executeSessionAction(ctx context.Context, session *domain.
 			err = uc.executor.projects.Update(ctx, p.ID, state["new_name"], state["description"], userID)
 		}
 	case domain.IntentAddMember:
-		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: adding member", slog.String("project_id", state["project_id"]), slog.String("email", state["email"]))
-		err = uc.executor.members.AddByEmail(ctx, state["project_id"], state["email"], state["role"], userID)
+		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: adding member", slog.String("project_name", state["project_name"]), slog.String("email", state["email"]))
+		var p *domain.ProjectSummary
+		p, err = uc.executor.findProjectByName(ctx, userID, state["project_name"])
+		if err == nil {
+			err = uc.executor.members.AddByEmail(ctx, p.ID, state["email"], state["role"], userID)
+		}
 	case domain.IntentRemoveMember:
 		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: removing member", slog.String("project_id", state["project_id"]), slog.String("user_id", state["user_id"]))
 		err = uc.executor.members.Remove(ctx, state["project_id"], state["user_id"], userID)
