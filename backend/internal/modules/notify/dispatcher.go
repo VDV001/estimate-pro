@@ -11,19 +11,26 @@ import (
 )
 
 // eventMeta describes how to render a notification for each domain event.
+//
 // MessageFn accepts variadic extra args so events that need additional context
 // (e.g. task name for estimation.requested) can pass it without forcing every
 // existing event to deal with the extra parameter.
+//
+// SyncOnly marks events that must only flow through a typed sync entry point
+// (e.g. Dispatcher.RequestEstimation) — HandleEvent's generic async path
+// rejects them, because the caller has no way to supply the extra args and
+// MessageFn would silently render a half-formed message.
 var eventMeta = map[string]struct {
 	EventType domain.EventType
 	Title     string
+	SyncOnly  bool
 	MessageFn func(name string, args ...string) string
 }{
-	"member.added":          {domain.EventMemberAdded, "member.added", func(name string, _ ...string) string { return fmt.Sprintf("%s added to project", name) }},
-	"document.uploaded":     {domain.EventDocumentUploaded, "document.uploaded", func(name string, _ ...string) string { return fmt.Sprintf("%s uploaded a document", name) }},
-	"estimation.submitted":  {domain.EventEstimationSubmitted, "estimation.submitted", func(name string, _ ...string) string { return fmt.Sprintf("%s submitted an estimation", name) }},
-	"estimation.aggregated": {domain.EventEstimationAggregated, "estimation.aggregated", func(name string, _ ...string) string { return fmt.Sprintf("Estimation aggregated by %s", name) }},
-	"estimation.requested": {domain.EventEstimationRequested, "estimation.requested", func(name string, args ...string) string {
+	"member.added":          {domain.EventMemberAdded, "member.added", false, func(name string, _ ...string) string { return fmt.Sprintf("%s added to project", name) }},
+	"document.uploaded":     {domain.EventDocumentUploaded, "document.uploaded", false, func(name string, _ ...string) string { return fmt.Sprintf("%s uploaded a document", name) }},
+	"estimation.submitted":  {domain.EventEstimationSubmitted, "estimation.submitted", false, func(name string, _ ...string) string { return fmt.Sprintf("%s submitted an estimation", name) }},
+	"estimation.aggregated": {domain.EventEstimationAggregated, "estimation.aggregated", false, func(name string, _ ...string) string { return fmt.Sprintf("Estimation aggregated by %s", name) }},
+	"estimation.requested": {domain.EventEstimationRequested, "estimation.requested", true, func(name string, args ...string) string {
 		var taskName string
 		if len(args) > 0 {
 			taskName = args[0]
@@ -52,7 +59,7 @@ func NewDispatcher(uc *usecase.NotificationUsecase, lookup UserNameLookup, ctx c
 // HandleEvent is the callback for emitEvent. Runs notification dispatch in background goroutine.
 func (d *Dispatcher) HandleEvent(eventType, projectID, userID string) {
 	meta, ok := eventMeta[eventType]
-	if !ok {
+	if !ok || meta.SyncOnly {
 		return
 	}
 
