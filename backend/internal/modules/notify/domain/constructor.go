@@ -12,7 +12,7 @@ import (
 // IsValid reports whether the EventType is a known domain event.
 func (e EventType) IsValid() bool {
 	switch e {
-	case EventMemberAdded, EventDocumentUploaded, EventEstimationSubmitted, EventEstimationAggregated:
+	case EventMemberAdded, EventDocumentUploaded, EventEstimationSubmitted, EventEstimationAggregated, EventEstimationRequested:
 		return true
 	}
 	return false

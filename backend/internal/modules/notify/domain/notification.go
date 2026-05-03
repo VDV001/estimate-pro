@@ -30,6 +30,7 @@ const (
 	EventDocumentUploaded     EventType = "document.uploaded"
 	EventEstimationSubmitted  EventType = "estimation.submitted"
 	EventEstimationAggregated EventType = "estimation.aggregated"
+	EventEstimationRequested  EventType = "estimation.requested"
 )
 
 // Notification is an in-app notification for a user.
@@ -62,10 +63,15 @@ type DeliveryLog struct {
 }
 
 // NotifyEvent is the input for creating notifications from domain events.
+//
+// TaskName is optional and only carried for events that pertain to a specific
+// task (e.g. EventEstimationRequested). For events that operate at project
+// level (member.added, document.uploaded, estimation.aggregated) it is empty.
 type NotifyEvent struct {
 	EventType EventType
 	ProjectID string
 	ActorID   string
+	TaskName  string
 	Title     string
 	Message   string
 }
