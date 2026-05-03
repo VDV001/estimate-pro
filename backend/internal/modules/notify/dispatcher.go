@@ -84,7 +84,6 @@ func (d *Dispatcher) RequestEstimation(ctx context.Context, projectID, userID, t
 		EventType: domain.EventEstimationRequested,
 		ProjectID: projectID,
 		ActorID:   userID,
-		TaskName:  taskName,
 		Title:     string(domain.EventEstimationRequested),
 		Message:   fmt.Sprintf("%s requested estimation for task %s", name, taskName),
 	})
