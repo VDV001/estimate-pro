@@ -639,8 +639,16 @@ func (uc *BotUsecase) executeSessionAction(ctx context.Context, session *domain.
 			err = uc.executor.members.AddByEmail(ctx, p.ID, state["email"], state["role"], userID)
 		}
 	case domain.IntentRemoveMember:
-		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: removing member", slog.String("project_id", state["project_id"]), slog.String("user_id", state["user_id"]))
-		err = uc.executor.members.Remove(ctx, state["project_id"], state["user_id"], userID)
+		slog.InfoContext(ctx, "BotUsecase.executeSessionAction: removing member", slog.String("project_name", state["project_name"]), slog.String("user_name", state["user_name"]))
+		var p *domain.ProjectSummary
+		p, err = uc.executor.findProjectByName(ctx, userID, state["project_name"])
+		if err == nil {
+			var m *domain.MemberSummary
+			m, err = uc.executor.findMemberByName(ctx, p.ID, state["user_name"])
+			if err == nil {
+				err = uc.executor.members.Remove(ctx, p.ID, m.UserID, userID)
+			}
+		}
 	default:
 		slog.WarnContext(ctx, "BotUsecase.executeSessionAction: unknown intent", slog.String("intent", string(session.Intent)))
 		return nil
