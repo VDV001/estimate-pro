@@ -394,24 +394,6 @@ func TestExecute(t *testing.T) {
 			wantContains: []string{"удовлетворять"},
 		},
 		{
-			name: "RequestEstimation_FeatureNotImplemented",
-			intent: &domain.Intent{Type: domain.IntentRequestEstimation, Params: map[string]string{
-				"project_name": "Alpha", "task_name": "Auth",
-			}},
-			userID: "user-1",
-			projects: &mockProjectManager{
-				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
-					return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
-				},
-			},
-			estimations: &mockEstimationManager{
-				requestEstimationFn: func(_ context.Context, _, _, _ string) error {
-					return domain.ErrFeatureNotImplemented
-				},
-			},
-			wantContains: []string{"разработк"},
-		},
-		{
 			name: "SubmitEstimation_ProjectNotFound",
 			intent: &domain.Intent{Type: domain.IntentSubmitEstimation, Params: map[string]string{
 				"project_name": "Ghost", "task_name": "X",

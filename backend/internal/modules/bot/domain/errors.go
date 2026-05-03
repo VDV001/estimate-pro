@@ -63,9 +63,4 @@ var (
 	// ErrInvalidHours into this sentinel so the bot module stays decoupled
 	// from estimation/domain.
 	ErrInvalidEstimationHours = errors.New("bot: invalid estimation hours")
-
-	// ErrFeatureNotImplemented is returned by manager methods whose adapter
-	// is a placeholder pending follow-up integration. Executor maps it to
-	// a «feature in development» message — never silent success.
-	ErrFeatureNotImplemented = errors.New("bot: feature not implemented")
 )

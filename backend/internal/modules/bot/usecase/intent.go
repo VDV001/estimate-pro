@@ -292,10 +292,6 @@ func (e *IntentExecutor) requestEstimation(ctx context.Context, intent *domain.I
 	}
 
 	if err := e.estimations.RequestEstimation(ctx, p.ID, userID, taskName); err != nil {
-		if errors.Is(err, domain.ErrFeatureNotImplemented) {
-			return "Функция «запрос оценки» пока в разработке (см. issue #24). " +
-				"Пока добавь оценку вручную через UI или используй команду «оценка <проект> <задача> min=X likely=Y max=Z».", nil, nil
-		}
 		slog.ErrorContext(ctx, "IntentExecutor.requestEstimation: RequestEstimation failed", slog.String("project_id", p.ID), slog.String("task", taskName), slog.String("error", err.Error()))
 		return "", nil, fmt.Errorf("IntentExecutor.requestEstimation: %w", err)
 	}
