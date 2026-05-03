@@ -206,6 +206,22 @@ func TestDispatcher_RequestEstimation_NoMembers(t *testing.T) {
 	}
 }
 
+func TestDispatcher_HandleEvent_RejectsSyncOnlyEstimationRequested(t *testing.T) {
+	notifyRepo := &mockNotifyRepo{}
+	uc := usecase.New(notifyRepo, &mockPrefRepo{}, &mockDeliveryRepo{}, &mockMemberLister{
+		userIDs: []string{"u1", "u2"},
+	})
+	lookup := &mockNameLookup{names: map[string]string{"actor-1": "Alice"}}
+	d := notify.NewDispatcher(uc, lookup, t.Context())
+
+	d.HandleEvent("estimation.requested", "proj-1", "actor-1")
+	d.Shutdown()
+
+	if got := notifyRepo.createdLen(); got != 0 {
+		t.Errorf("HandleEvent must not dispatch sync-only events through async path: got %d notifications, want 0", got)
+	}
+}
+
 func TestDispatcher_RequestEstimation_FallsBackToUserIDWhenNameLookupFails(t *testing.T) {
 	notifyRepo := &mockNotifyRepo{}
 	uc := usecase.New(notifyRepo, &mockPrefRepo{}, &mockDeliveryRepo{}, &mockMemberLister{
