@@ -437,6 +437,13 @@ func projectNotFoundMsg(name string) string {
 	return fmt.Sprintf("Проект «%s» не найден. Используйте «мои проекты» для просмотра списка.", name)
 }
 
+// memberNotFoundMsg returns the canonical user-facing message shown when a
+// user_name does not match any member of the resolved project. Symmetric
+// with projectNotFoundMsg.
+func memberNotFoundMsg(name string) string {
+	return fmt.Sprintf("Участник «%s» не найден. Используйте «участники <проект>» для просмотра списка.", name)
+}
+
 // findMemberByName looks up a member of the given project by user name
 // (case-insensitive). Returns domain.ErrMemberNotFound if no match.
 // Symmetric with findProjectByName.
