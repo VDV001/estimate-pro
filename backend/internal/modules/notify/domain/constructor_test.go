@@ -58,6 +58,39 @@ func TestNewNotification_Validation(t *testing.T) {
 	}
 }
 
+func TestEventType_IsValid_AllKnownEvents(t *testing.T) {
+	known := []domain.EventType{
+		domain.EventMemberAdded,
+		domain.EventDocumentUploaded,
+		domain.EventEstimationSubmitted,
+		domain.EventEstimationAggregated,
+		domain.EventEstimationRequested,
+	}
+	for _, et := range known {
+		t.Run(string(et), func(t *testing.T) {
+			if !et.IsValid() {
+				t.Errorf("EventType(%q).IsValid() = false, want true", et)
+			}
+		})
+	}
+}
+
+func TestEventEstimationRequested_Value(t *testing.T) {
+	if got, want := string(domain.EventEstimationRequested), "estimation.requested"; got != want {
+		t.Errorf("EventEstimationRequested = %q, want %q", got, want)
+	}
+}
+
+func TestNewNotification_AcceptsEventEstimationRequested(t *testing.T) {
+	n, err := domain.NewNotification("user-1", domain.EventEstimationRequested, "Estimation requested", "Alice requested estimation for task Auth", "proj-1")
+	if err != nil {
+		t.Fatalf("NewNotification(EventEstimationRequested): %v", err)
+	}
+	if n.EventType != domain.EventEstimationRequested {
+		t.Errorf("EventType = %q, want %q", n.EventType, domain.EventEstimationRequested)
+	}
+}
+
 func TestNotification_MarkRead(t *testing.T) {
 	n, _ := domain.NewNotification("u1", domain.EventMemberAdded, "t", "m", "")
 	n.MarkRead()

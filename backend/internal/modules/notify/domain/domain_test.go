@@ -45,6 +45,20 @@ func TestNotifyEvent_Fields(t *testing.T) {
 	}
 }
 
+func TestNotifyEvent_TaskName(t *testing.T) {
+	evt := domain.NotifyEvent{
+		EventType: domain.EventEstimationRequested,
+		ProjectID: "proj-1",
+		ActorID:   "user-1",
+		TaskName:  "Auth flow",
+		Title:     "estimation.requested",
+		Message:   "Alice requested estimation for task Auth flow",
+	}
+	if evt.TaskName != "Auth flow" {
+		t.Errorf("TaskName: got %q, want %q", evt.TaskName, "Auth flow")
+	}
+}
+
 func TestNotification_Struct(t *testing.T) {
 	n := domain.Notification{
 		ID:        "n-1",
