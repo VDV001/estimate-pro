@@ -76,6 +76,7 @@ func (sm *SessionManager) Advance(ctx context.Context, session *domain.BotSessio
 	slog.DebugContext(ctx, "SessionManager.Advance", slog.String("session_id", session.ID), slog.Int("from_step", session.Step), slog.Any("new_data", newData))
 	state, err := sm.GetState(session)
 	if err != nil {
+		slog.ErrorContext(ctx, "SessionManager.Advance: GetState failed", slog.String("session_id", session.ID), slog.String("error", err.Error()))
 		return fmt.Errorf("SessionManager.Advance: %w", err)
 	}
 

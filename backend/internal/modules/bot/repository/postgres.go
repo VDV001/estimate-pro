@@ -35,6 +35,7 @@ func (r *PostgresSessionRepository) Create(ctx context.Context, session *domain.
 		session.ID, session.ChatID, session.UserID, session.Intent,
 		session.State, session.Step, session.ExpiresAt, session.CreatedAt, session.UpdatedAt)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.Session.Create: INSERT failed", slog.String("session_id", session.ID), slog.String("chat_id", session.ChatID), slog.String("error", err.Error()))
 		return fmt.Errorf("bot.Repository.Create: %w", err)
 	}
 	return nil
@@ -54,6 +55,7 @@ func (r *PostgresSessionRepository) GetActiveByChatID(ctx context.Context, chatI
 		return nil, domain.ErrSessionNotFound
 	}
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.Session.GetActiveByChatID: query failed", slog.String("chat_id", chatID), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("bot.Repository.GetActiveByChatID: %w", err)
 	}
 	return s, nil
@@ -64,6 +66,7 @@ func (r *PostgresSessionRepository) Update(ctx context.Context, session *domain.
 		`UPDATE bot_sessions SET state = $1, step = $2, updated_at = $3 WHERE id = $4`,
 		session.State, session.Step, session.UpdatedAt, session.ID)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.Session.Update: UPDATE failed", slog.String("session_id", session.ID), slog.String("error", err.Error()))
 		return fmt.Errorf("bot.Repository.Update: %w", err)
 	}
 	return nil
@@ -72,6 +75,7 @@ func (r *PostgresSessionRepository) Update(ctx context.Context, session *domain.
 func (r *PostgresSessionRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM bot_sessions WHERE id = $1`, id)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.Session.Delete: DELETE failed", slog.String("session_id", id), slog.String("error", err.Error()))
 		return fmt.Errorf("bot.Repository.Delete: %w", err)
 	}
 	return nil
@@ -80,6 +84,7 @@ func (r *PostgresSessionRepository) Delete(ctx context.Context, id string) error
 func (r *PostgresSessionRepository) DeleteExpired(ctx context.Context) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM bot_sessions WHERE expires_at <= NOW()`)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.Session.DeleteExpired: DELETE failed", slog.String("error", err.Error()))
 		return fmt.Errorf("bot.Repository.DeleteExpired: %w", err)
 	}
 	return nil
@@ -105,6 +110,7 @@ func (r *PostgresUserLinkRepository) Link(ctx context.Context, link *domain.BotU
 		 SET user_id = EXCLUDED.user_id, telegram_username = EXCLUDED.telegram_username, linked_at = EXCLUDED.linked_at`,
 		link.TelegramUserID, link.UserID, link.TelegramUsername, link.LinkedAt)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.UserLink.Link: UPSERT failed", slog.Int64("telegram_user_id", link.TelegramUserID), slog.String("user_id", link.UserID), slog.String("error", err.Error()))
 		return fmt.Errorf("bot.Repository.Link: %w", err)
 	}
 	return nil
@@ -141,6 +147,7 @@ func (r *PostgresUserLinkRepository) GetByUserID(ctx context.Context, userID str
 		return nil, domain.ErrUserNotLinked
 	}
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.UserLink.GetByUserID: query failed", slog.String("user_id", userID), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("bot.Repository.GetByUserID: %w", err)
 	}
 	return l, nil
@@ -149,6 +156,7 @@ func (r *PostgresUserLinkRepository) GetByUserID(ctx context.Context, userID str
 func (r *PostgresUserLinkRepository) Delete(ctx context.Context, telegramUserID int64) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM bot_user_links WHERE telegram_user_id = $1`, telegramUserID)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.UserLink.Delete: DELETE failed", slog.Int64("telegram_user_id", telegramUserID), slog.String("error", err.Error()))
 		return fmt.Errorf("bot.Repository.Delete: %w", err)
 	}
 	return nil
@@ -211,6 +219,7 @@ func (r *PostgresLLMConfigRepository) GetSystem(ctx context.Context) (*domain.LL
 		return nil, domain.ErrNoLLMConfig
 	}
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.LLMConfig.GetSystem: query failed", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("bot.Repository.GetSystem: %w", err)
 	}
 	return c, nil
@@ -228,6 +237,7 @@ func (r *PostgresLLMConfigRepository) GetByUserID(ctx context.Context, userID st
 		return nil, domain.ErrNoLLMConfig
 	}
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.LLMConfig.GetByUserID: query failed", slog.String("user_id", userID), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("bot.Repository.GetByUserID: %w", err)
 	}
 	return c, nil
@@ -242,6 +252,7 @@ func (r *PostgresLLMConfigRepository) Upsert(ctx context.Context, cfg *domain.LL
 		     base_url = EXCLUDED.base_url, updated_at = EXCLUDED.updated_at`,
 		cfg.ID, nilIfEmpty(cfg.UserID), cfg.Provider, nilIfEmpty(cfg.APIKey), cfg.Model, nilIfEmpty(cfg.BaseURL), cfg.CreatedAt, cfg.UpdatedAt)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.LLMConfig.Upsert: UPSERT failed", slog.String("config_id", cfg.ID), slog.String("user_id", cfg.UserID), slog.String("error", err.Error()))
 		return fmt.Errorf("bot.Repository.Upsert: %w", err)
 	}
 	return nil
@@ -282,6 +293,7 @@ func (r *PostgresMemoryRepository) GetRecent(ctx context.Context, userID string,
 		FROM bot_memory WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`
 	rows, err := r.pool.Query(ctx, query, userID, limit)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.Memory.GetRecent: query failed", slog.String("user_id", userID), slog.Int("limit", limit), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("bot.MemoryRepository.GetRecent: %w", err)
 	}
 	defer rows.Close()
@@ -290,11 +302,13 @@ func (r *PostgresMemoryRepository) GetRecent(ctx context.Context, userID string,
 	for rows.Next() {
 		e := &domain.MemoryEntry{}
 		if err := rows.Scan(&e.ID, &e.UserID, &e.ChatID, &e.Role, &e.Content, &e.Intent, &e.CreatedAt); err != nil {
+			slog.ErrorContext(ctx, "bot.repo.Memory.GetRecent: scan failed", slog.String("user_id", userID), slog.String("error", err.Error()))
 			return nil, fmt.Errorf("bot.MemoryRepository.GetRecent scan: %w", err)
 		}
 		entries = append(entries, e)
 	}
 	if err := rows.Err(); err != nil {
+		slog.ErrorContext(ctx, "bot.repo.Memory.GetRecent: iteration failed", slog.String("user_id", userID), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("bot.MemoryRepository.GetRecent iteration: %w", err)
 	}
 
@@ -311,6 +325,7 @@ func (r *PostgresMemoryRepository) DeleteOld(ctx context.Context, userID string,
 	)`
 	_, err := r.pool.Exec(ctx, query, userID, keepLast)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.Memory.DeleteOld: DELETE failed", slog.String("user_id", userID), slog.Int("keep_last", keepLast), slog.String("error", err.Error()))
 		return fmt.Errorf("bot.MemoryRepository.DeleteOld: %w", err)
 	}
 	return nil
@@ -335,6 +350,7 @@ func (r *PostgresUserPrefsRepository) Get(ctx context.Context, userID string) (*
 		return &domain.UserPrefs{UserID: userID, Style: domain.StyleCasual, Language: "ru"}, nil
 	}
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.UserPrefs.Get: query failed", slog.String("user_id", userID), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("bot.UserPrefsRepository.Get: %w", err)
 	}
 	return p, nil
@@ -346,6 +362,7 @@ func (r *PostgresUserPrefsRepository) Upsert(ctx context.Context, prefs *domain.
 		ON CONFLICT (user_id) DO UPDATE SET style = $2, language = $3, notes = $4, updated_at = NOW()`
 	_, err := r.pool.Exec(ctx, query, prefs.UserID, prefs.Style, prefs.Language, prefs.Notes)
 	if err != nil {
+		slog.ErrorContext(ctx, "bot.repo.UserPrefs.Upsert: UPSERT failed", slog.String("user_id", prefs.UserID), slog.String("error", err.Error()))
 		return fmt.Errorf("bot.UserPrefsRepository.Upsert: %w", err)
 	}
 	return nil
