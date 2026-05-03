@@ -1342,6 +1342,86 @@ func TestProcessCallback_AddMember_AutoExecutesAfterRoleSelection(t *testing.T) 
 	}
 }
 
+// TestProcessCallback_Confirm_RemoveMember verifies that confirming a
+// remove_member session resolves project_name → project_id and
+// user_name → member user_id, then calls MemberManager.Remove with both
+// resolved ids. Pre-fix executeSessionAction read state["project_id"] and
+// state["user_id"] directly — both are empty in the remove_member flow
+// (executor.removeMember creates session with {project_name, user_name}
+// only), so Remove was called with empty UUIDs and failed validation.
+// See issue #27 (problem 2).
+func TestProcessCallback_Confirm_RemoveMember(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	stateJSON, _ := json.Marshal(map[string]string{
+		"project_name": "Backend",
+		"user_name":    "Vasya",
+	})
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return &domain.BotSession{
+			ID:        "ses-1",
+			ChatID:    "100",
+			UserID:    "user-1",
+			Intent:    domain.IntentRemoveMember,
+			State:     stateJSON,
+			Step:      0,
+			ExpiresAt: time.Now().Add(5 * time.Minute),
+		}, nil
+	}
+	deps.sessionRepo.DeleteFn = func(_ context.Context, _ string) error { return nil }
+	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error { return nil }
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, _ string) error { return nil }
+
+	deps.projects.ListByUserFn = func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+		return []domain.ProjectSummary{{ID: "proj-uuid-1", Name: "Backend"}}, 1, nil
+	}
+	deps.members.ListFn = func(_ context.Context, _ string) ([]domain.MemberSummary, error) {
+		return []domain.MemberSummary{
+			{UserID: "user-vasya", UserName: "Vasya"},
+			{UserID: "user-petya", UserName: "Petya"},
+		}, nil
+	}
+
+	var rmProjectID, rmUserID, rmCallerID string
+	rmCallCount := 0
+	deps.members.RemoveFn = func(_ context.Context, projectID, userID, callerID string) error {
+		rmCallCount++
+		rmProjectID = projectID
+		rmUserID = userID
+		rmCallerID = callerID
+		return nil
+	}
+
+	uc := deps.build()
+
+	err := uc.ProcessCallback(t.Context(), &tg.Update{
+		CallbackQuery: &tg.CallbackQuery{
+			ID:      "cb-rm",
+			From:    &tg.User{ID: 12345},
+			Message: &tg.Message{Chat: &tg.Chat{ID: 100, Type: "private"}},
+			Data:    "confirm:remove_member",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rmCallCount != 1 {
+		t.Fatalf("expected MemberManager.Remove to be called exactly once, got %d", rmCallCount)
+	}
+	if rmProjectID != "proj-uuid-1" {
+		t.Errorf("Remove projectID = %q, want %q (resolved from project_name)", rmProjectID, "proj-uuid-1")
+	}
+	if rmUserID != "user-vasya" {
+		t.Errorf("Remove userID = %q, want %q (resolved from user_name)", rmUserID, "user-vasya")
+	}
+	if rmCallerID != "user-1" {
+		t.Errorf("Remove callerID = %q, want %q", rmCallerID, "user-1")
+	}
+}
+
 func TestProcessCallback_Confirm(t *testing.T) {
 	deps := newTestBotDeps()
 
