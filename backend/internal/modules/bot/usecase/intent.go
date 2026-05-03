@@ -437,6 +437,23 @@ func projectNotFoundMsg(name string) string {
 	return fmt.Sprintf("Проект «%s» не найден. Используйте «мои проекты» для просмотра списка.", name)
 }
 
+// findMemberByName looks up a member of the given project by user name
+// (case-insensitive). Returns domain.ErrMemberNotFound if no match.
+// Symmetric with findProjectByName.
+func (e *IntentExecutor) findMemberByName(ctx context.Context, projectID, name string) (*domain.MemberSummary, error) {
+	members, err := e.members.List(ctx, projectID)
+	if err != nil {
+		slog.ErrorContext(ctx, "IntentExecutor.findMemberByName: List failed", slog.String("project_id", projectID), slog.String("error", err.Error()))
+		return nil, fmt.Errorf("IntentExecutor.findMemberByName: %w", err)
+	}
+	for i := range members {
+		if strings.EqualFold(members[i].UserName, name) {
+			return &members[i], nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %s", domain.ErrMemberNotFound, name)
+}
+
 // parseHours parses min/likely/max hours from string params. Returns ok=false
 // if any value fails strconv.ParseFloat. Domain validates the invariant
 // min ≤ likely ≤ max in NewEstimationItem — caller should not duplicate.

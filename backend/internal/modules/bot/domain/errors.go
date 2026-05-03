@@ -53,6 +53,10 @@ var (
 	// project owned by or shared with the user.
 	ErrProjectNotFound = errors.New("bot: project not found")
 
+	// ErrMemberNotFound is returned when a user_name does not match any
+	// member of the given project. Symmetric with ErrProjectNotFound.
+	ErrMemberNotFound = errors.New("bot: member not found")
+
 	// ErrInvalidEstimationHours is returned by EstimationManager.SubmitItem
 	// when min/likely/max hours violate the domain invariant
 	// (min ≤ likely ≤ max, all ≥ 0). Bot adapters wrap estimation/domain's
