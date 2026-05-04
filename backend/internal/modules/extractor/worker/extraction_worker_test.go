@@ -57,6 +57,39 @@ func (panickingReader) Parse(_ context.Context, _ string, _ []byte) (string, err
 	panic("worker: TextExtractor.Parse not expected to be called in this test")
 }
 
+// capturingSource records every Fetch call and returns a canned
+// response. Used by tests that drive the worker into the download
+// stage without yet exercising the LLM call.
+type capturingSource struct {
+	calls    []string
+	respData []byte
+	respName string
+	respErr  error
+}
+
+func (c *capturingSource) Fetch(_ context.Context, documentVersionID string) ([]byte, string, error) {
+	c.calls = append(c.calls, documentVersionID)
+	return c.respData, c.respName, c.respErr
+}
+
+// capturingReader records every Parse call and returns a canned
+// response. Like capturingSource — drives stage-by-stage tests.
+type capturingReader struct {
+	calls    []capturingReaderCall
+	respText string
+	respErr  error
+}
+
+type capturingReaderCall struct {
+	filename string
+	data     []byte
+}
+
+func (c *capturingReader) Parse(_ context.Context, filename string, data []byte) (string, error) {
+	c.calls = append(c.calls, capturingReaderCall{filename: filename, data: data})
+	return c.respText, c.respErr
+}
+
 type panickingCompleter struct{}
 
 func (panickingCompleter) Complete(_ context.Context, _, _ string, _ sharedllm.CompletionOptions) (string, sharedllm.TokenUsage, error) {
@@ -217,5 +250,34 @@ func TestProcess_PendingTransitionsToProcessing(t *testing.T) {
 	}
 	if gotEvent.ExtractionID != ext.ID {
 		t.Fatalf("expected event.ExtractionID=%q, got %q", ext.ID, gotEvent.ExtractionID)
+	}
+}
+
+// TestProcess_AfterTransition_FetchesAndParsesDocument pins the
+// next slice of the happy path: once the extraction is processing,
+// the worker fetches the raw document bytes from the document
+// storage adapter (DocumentSource.Fetch keyed by the version id
+// recorded on the extraction) and dispatches them through the
+// shared/reader.Composite (TextExtractor.Parse with the filename
+// hint returned by the source). The completer + security checker
+// are not yet invoked — the panicking fakes prove that the LLM /
+// security stages remain deferred to subsequent RED+GREEN pairs.
+func TestProcess_AfterTransition_FetchesAndParsesDocument(t *testing.T) {
+	ext := pendingExtraction(t)
+	store := &fakeStore{got: ext}
+	source := &capturingSource{respData: []byte("PDF-bytes"), respName: "spec.pdf"}
+	reader := &capturingReader{respText: "extracted plain text"}
+
+	w := worker.NewExtractionWorker(store, source, reader, panickingCompleter{}, panickingSecurity{})
+
+	if err := w.Process(context.Background(), worker.ExtractionArgs{ExtractionID: ext.ID}); err != nil {
+		t.Fatalf("expected nil error after download+parse, got %v", err)
+	}
+
+	if got := source.calls; len(got) != 1 || got[0] != ext.DocumentVersionID {
+		t.Fatalf("expected DocumentSource.Fetch called once with %q, got %v", ext.DocumentVersionID, got)
+	}
+	if got := reader.calls; len(got) != 1 || got[0].filename != "spec.pdf" || string(got[0].data) != "PDF-bytes" {
+		t.Fatalf("expected TextExtractor.Parse called once with (spec.pdf, PDF-bytes), got %+v", got)
 	}
 }
