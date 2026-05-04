@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.12.8-blue)
+![Version](https://img.shields.io/badge/version-0.12.9-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,13 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.12.8`**
+**Текущая версия: `0.12.9`**
 
 ### Changelog
+
+#### v0.12.9 (2026-05-04)
+- refactor(bot): UI-строки бота извлечены из `bot/usecase/{bot,intent}.go` в новый presentation-пакет `bot/handler/messages` — 47 spots (prompts, errors, success-сообщения, button-labels, help, format-helpers). Naming: `Btn*`/`Toast*`/`Ask*`/`Confirm*`/`Err*`/`Memory*`; const для статичного текста, func для format-строк. `messages` зависит только от stdlib, `usecase → messages` — однонаправленная инфраструктурная связь. Local helpers `projectNotFoundMsg`/`memberNotFoundMsg`/`statusEmoji` удалены — callers используют `messages.*`. Поведение не меняется, existing тесты остаются зелёными как regression-net (#37).
+- test(bot/usecase): добавлены assertions на `Готово!` в `TestProcessCallback_Confirm`/`Confirm_UpdateProject`/`AddMember_AutoExecutesAfterRoleSelection` — closing literal-swap window для success-веток перед refactor'ом.
 
 #### v0.12.8 (2026-05-04)
 - fix(bot/llm): formatter теперь явно проверяет HTTP status code от провайдеров (Claude/OpenAI/Grok/Ollama). 401/429/5xx больше не маскируются как «empty response» — `slog.WarnContext` показывает status + body preview (200 байт), error содержит `status %d`. Format() upper-level fallback на raw actionResult сохранён, поведение для пользователя не меняется (#41).
