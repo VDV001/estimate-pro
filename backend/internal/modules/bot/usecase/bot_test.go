@@ -1295,7 +1295,11 @@ func TestProcessCallback_AddMember_AutoExecutesAfterRoleSelection(t *testing.T) 
 	}
 	deps.sessionRepo.UpdateFn = func(_ context.Context, _ *domain.BotSession) error { return nil }
 	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error { return nil }
-	deps.tgClient.SendMessageFn = func(_ context.Context, _, _ string) error { return nil }
+	var sentTexts []string
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, text string) error {
+		sentTexts = append(sentTexts, text)
+		return nil
+	}
 
 	deps.projects.ListByUserFn = func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
 		return []domain.ProjectSummary{{ID: "proj-uuid-1", Name: "Backend"}}, 1, nil
@@ -1339,6 +1343,16 @@ func TestProcessCallback_AddMember_AutoExecutesAfterRoleSelection(t *testing.T) 
 	}
 	if addCallCallerID != "user-1" {
 		t.Errorf("AddByEmail callerID = %q, want %q", addCallCallerID, "user-1")
+	}
+	foundDone := false
+	for _, t := range sentTexts {
+		if strings.Contains(t, "Готово") {
+			foundDone = true
+			break
+		}
+	}
+	if !foundDone {
+		t.Errorf("expected success message «Готово!» on add_member auto-execute, got: %v", sentTexts)
 	}
 }
 
@@ -1657,6 +1671,18 @@ func TestProcessCallback_Confirm(t *testing.T) {
 	if !createdProject {
 		t.Error("expected project to be created on confirm")
 	}
+	// Success branch must surface "Готово!" so refactor cannot accidentally
+	// substitute a cancel/error literal in the confirm-success path.
+	foundDone := false
+	for _, t := range sentTexts {
+		if strings.Contains(t, "Готово") {
+			foundDone = true
+			break
+		}
+	}
+	if !foundDone {
+		t.Errorf("expected success message «Готово!» on confirm-create_project, got: %v", sentTexts)
+	}
 }
 
 // TestProcessCallback_Confirm_UpdateProject verifies that confirming an
@@ -1698,7 +1724,11 @@ func TestProcessCallback_Confirm_UpdateProject(t *testing.T) {
 		return nil
 	}
 	deps.sessionRepo.DeleteFn = func(_ context.Context, _ string) error { return nil }
-	deps.tgClient.SendMessageFn = func(_ context.Context, _, _ string) error { return nil }
+	var sentTexts []string
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, text string) error {
+		sentTexts = append(sentTexts, text)
+		return nil
+	}
 	deps.tgClient.AnswerCallbackQueryFn = func(_ context.Context, _, _ string) error { return nil }
 
 	uc := deps.build()
@@ -1725,6 +1755,16 @@ func TestProcessCallback_Confirm_UpdateProject(t *testing.T) {
 	}
 	if capturedDesc != "v2" {
 		t.Errorf("Update called with description=%q, want v2", capturedDesc)
+	}
+	foundDone := false
+	for _, t := range sentTexts {
+		if strings.Contains(t, "Готово") {
+			foundDone = true
+			break
+		}
+	}
+	if !foundDone {
+		t.Errorf("expected success message «Готово!» on confirm-update_project, got: %v", sentTexts)
 	}
 }
 
