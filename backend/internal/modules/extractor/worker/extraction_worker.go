@@ -15,6 +15,8 @@ package worker
 import (
 	"context"
 	"fmt"
+
+	"github.com/VDV001/estimate-pro/backend/internal/modules/extractor/domain"
 )
 
 // ExtractionArgs is the JSON payload enqueued onto the river queue
@@ -54,12 +56,53 @@ func NewExtractionWorker(store ExtractionStore, source DocumentSource, reader Te
 
 // Process is invoked by the river job runner for each enqueued
 // ExtractionArgs. PR-B3 builds the body slice by slice — currently
-// the load-and-return shell. Subsequent commits add the
-// transition / download / parse / security / LLM / persist stages
-// each behind their own RED+GREEN pair.
+// the load + status-guard + pending->processing transition.
+// Subsequent commits add the download / parse / security / LLM /
+// persist stages each behind their own RED+GREEN pair.
+//
+// Idempotency: if the extraction has already moved past pending
+// (processing / completed / failed / cancelled), Process returns
+// nil without side effects. River may re-dispatch the same args
+// after a worker crash, and the second invocation must observe
+// the current state and exit cleanly.
+//
+// actor is hard-coded to "worker" — every transition driven by
+// this method is the system, not a user; user-driven transitions
+// flow through the Extractor use-cases with the user's identifier
+// supplied by the HTTP handler.
+const workerActor = "worker"
+
 func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) error {
-	if _, err := w.store.GetByID(ctx, args.ExtractionID); err != nil {
+	ext, err := w.store.GetByID(ctx, args.ExtractionID)
+	if err != nil {
 		return fmt.Errorf("worker.Process load extraction %q: %w", args.ExtractionID, err)
+	}
+	if ext.Status != domain.StatusPending {
+		return nil
+	}
+	if err := w.transition(ctx, ext, (*domain.Extraction).MarkProcessing, ""); err != nil {
+		return fmt.Errorf("worker.Process transition pending->processing: %w", err)
+	}
+	return nil
+}
+
+// transition mutates the extraction via the supplied state-machine
+// method, then records the audit event in a single UpdateStatus
+// call so the post-mutation status and the audit trail are committed
+// atomically by the repository. The transition method is passed as
+// a Go method expression — callers write
+// (*domain.Extraction).MarkProcessing rather than building a closure.
+func (w *ExtractionWorker) transition(ctx context.Context, ext *domain.Extraction, mutate func(*domain.Extraction) error, errorMessage string) error {
+	from := ext.Status
+	if err := mutate(ext); err != nil {
+		return fmt.Errorf("transition mutate from %s: %w", from, err)
+	}
+	event, err := domain.NewExtractionEvent(ext.ID, from, ext.Status, errorMessage, workerActor)
+	if err != nil {
+		return fmt.Errorf("transition build audit event %s->%s: %w", from, ext.Status, err)
+	}
+	if err := w.store.UpdateStatus(ctx, ext, event); err != nil {
+		return fmt.Errorf("transition persist %s->%s: %w", from, ext.Status, err)
 	}
 	return nil
 }
