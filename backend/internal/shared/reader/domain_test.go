@@ -20,8 +20,16 @@ func TestParseFileType(t *testing.T) {
 		{name: "docx without dot", input: "docx", want: reader.FileTypeDOCX},
 		{name: "docx with dot", input: ".docx", want: reader.FileTypeDOCX},
 		{name: "DOCX mixed case", input: ".DocX", want: reader.FileTypeDOCX},
-		{name: "unsupported xlsx", input: "xlsx", wantErr: reader.ErrUnsupportedFormat},
-		{name: "unsupported md", input: "md", wantErr: reader.ErrUnsupportedFormat},
+		{name: "md without dot", input: "md", want: reader.FileTypeMD},
+		{name: "md with dot", input: ".md", want: reader.FileTypeMD},
+		{name: "txt without dot", input: "txt", want: reader.FileTypeTXT},
+		{name: "TXT uppercase with dot", input: ".TXT", want: reader.FileTypeTXT},
+		{name: "csv without dot", input: "csv", want: reader.FileTypeCSV},
+		{name: "csv with dot", input: ".csv", want: reader.FileTypeCSV},
+		{name: "xlsx without dot", input: "xlsx", want: reader.FileTypeXLSX},
+		{name: "XLSX uppercase", input: ".XLSX", want: reader.FileTypeXLSX},
+		{name: "unsupported xls (legacy excel)", input: "xls", wantErr: reader.ErrUnsupportedFormat},
+		{name: "unsupported odt", input: "odt", wantErr: reader.ErrUnsupportedFormat},
 		{name: "unsupported empty", input: "", wantErr: reader.ErrUnsupportedFormat},
 	}
 	for _, tt := range tests {
@@ -50,6 +58,10 @@ func TestFileType_String(t *testing.T) {
 	}{
 		{reader.FileTypePDF, "pdf"},
 		{reader.FileTypeDOCX, "docx"},
+		{reader.FileTypeMD, "md"},
+		{reader.FileTypeTXT, "txt"},
+		{reader.FileTypeCSV, "csv"},
+		{reader.FileTypeXLSX, "xlsx"},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.ft), func(t *testing.T) {
