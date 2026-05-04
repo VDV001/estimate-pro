@@ -18,9 +18,6 @@ var (
 	// ErrInvalidIntent is returned when a parsed intent is not valid.
 	ErrInvalidIntent = errors.New("bot: invalid intent")
 
-	// ErrUnsupportedProvider is returned when an LLM provider is not supported.
-	ErrUnsupportedProvider = errors.New("bot: unsupported LLM provider")
-
 	// ErrNoLLMConfig is returned when no LLM configuration is available.
 	ErrNoLLMConfig = errors.New("bot: no LLM configuration found")
 

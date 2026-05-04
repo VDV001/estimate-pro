@@ -4,177 +4,89 @@
 package llm
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
+	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 )
+
+// NewParser smoke tests — actual HTTP behaviour now lives in
+// shared/llm/{claude,openai,ollama}_test.go. Here we only verify the bot
+// facade wraps each shared adapter in a *BotIntentParser and propagates
+// the shared validation sentinels.
 
 func TestNewParser_AllProviders(t *testing.T) {
 	tests := []struct {
 		name     string
 		provider domain.LLMProviderType
-		wantType string
+		apiKey   string
+		baseURL  string
 	}{
-		{"claude", domain.ProviderClaude, "*llm.ClaudeParser"},
-		{"openai", domain.ProviderOpenAI, "*llm.OpenAIParser"},
-		{"grok", domain.ProviderGrok, "*llm.GrokParser"},
-		{"ollama", domain.ProviderOllama, "*llm.OllamaParser"},
+		{"claude", domain.ProviderClaude, "test-key", ""},
+		{"openai", domain.ProviderOpenAI, "test-key", ""},
+		{"grok", domain.ProviderGrok, "test-key", ""},
+		{"ollama", domain.ProviderOllama, "", "http://localhost:11434"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parser, err := NewParser(tt.provider, "test-key", "test-model", "http://localhost:11434")
+			parser, err := NewParser(tt.provider, tt.apiKey, "test-model", tt.baseURL)
 			if err != nil {
 				t.Fatalf("NewParser(%s) returned error: %v", tt.provider, err)
 			}
 			if parser == nil {
 				t.Fatalf("NewParser(%s) returned nil parser", tt.provider)
 			}
+			if _, ok := parser.(*BotIntentParser); !ok {
+				t.Errorf("NewParser(%s) returned %T, want *BotIntentParser", tt.provider, parser)
+			}
 		})
 	}
 }
 
-func TestNewParser_UnsupportedProvider(t *testing.T) {
-	_, err := NewParser("unsupported", "key", "model", "")
-	if err == nil {
-		t.Fatal("NewParser(unsupported) should return error")
-	}
-	if !errors.Is(err, domain.ErrUnsupportedProvider) {
-		t.Fatalf("expected ErrUnsupportedProvider, got: %v", err)
-	}
-}
-
-func TestClaudeParser_ParseIntent(t *testing.T) {
-	intentJSON := `{"type":"create_project","params":{"project_name":"Test Project"},"confidence":0.95}`
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("x-api-key") != "test-key" {
-			t.Error("missing x-api-key header")
-		}
-		if r.Header.Get("anthropic-version") != "2023-06-01" {
-			t.Error("missing anthropic-version header")
-		}
-
-		resp := claudeResponse{
-			Content: []struct {
-				Text string `json:"text"`
-			}{
-				{Text: intentJSON},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer srv.Close()
-
-	parser := NewClaudeParser("test-key", "claude-3-haiku")
-	parser.baseURL = srv.URL
-
-	intent, err := parser.ParseIntent(t.Context(), "Create project Test Project", nil)
-	if err != nil {
-		t.Fatalf("ParseIntent returned error: %v", err)
+func TestNewParser_PropagatesValidationSentinels(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider domain.LLMProviderType
+		apiKey   string
+		model    string
+		wantErr  error
+	}{
+		{
+			name:     "unsupported_provider",
+			provider: "unsupported",
+			apiKey:   "k",
+			model:    "m",
+			wantErr:  sharedllm.ErrInvalidProvider,
+		},
+		{
+			name:     "empty_model",
+			provider: domain.ProviderClaude,
+			apiKey:   "k",
+			model:    "",
+			wantErr:  sharedllm.ErrEmptyModel,
+		},
+		{
+			name:     "empty_api_key_for_claude",
+			provider: domain.ProviderClaude,
+			apiKey:   "",
+			model:    "m",
+			wantErr:  sharedllm.ErrEmptyAPIKey,
+		},
 	}
 
-	assertIntent(t, intent, domain.IntentCreateProject, "Test Project", 0.95)
-}
-
-func TestOpenAIParser_ParseIntent(t *testing.T) {
-	intentJSON := `{"type":"list_projects","params":{},"confidence":0.9}`
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer test-key" {
-			t.Error("missing Authorization header")
-		}
-
-		resp := openaiResponse{
-			Choices: []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			}{
-				{Message: struct {
-					Content string `json:"content"`
-				}{Content: intentJSON}},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer srv.Close()
-
-	parser := NewOpenAIParser("test-key", "gpt-4")
-	parser.baseURL = srv.URL
-
-	intent, err := parser.ParseIntent(t.Context(), "Show my projects", nil)
-	if err != nil {
-		t.Fatalf("ParseIntent returned error: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewParser(tt.provider, tt.apiKey, tt.model, "")
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err = %v, want errors.Is(%v)", err, tt.wantErr)
+			}
+		})
 	}
-
-	assertIntent(t, intent, domain.IntentListProjects, "", 0.9)
-}
-
-func TestGrokParser_ParseIntent(t *testing.T) {
-	intentJSON := `{"type":"add_member","params":{"project_name":"App","email":"test@example.com","role":"editor"},"confidence":0.88}`
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer grok-key" {
-			t.Error("missing Authorization header")
-		}
-
-		resp := openaiResponse{
-			Choices: []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			}{
-				{Message: struct {
-					Content string `json:"content"`
-				}{Content: intentJSON}},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer srv.Close()
-
-	parser := NewGrokParser("grok-key", "grok-3-mini")
-	parser.baseURL = srv.URL
-
-	intent, err := parser.ParseIntent(t.Context(), "Add test@example.com as editor to App", nil)
-	if err != nil {
-		t.Fatalf("ParseIntent returned error: %v", err)
-	}
-
-	assertIntent(t, intent, domain.IntentAddMember, "App", 0.88)
-	if intent.Params["email"] != "test@example.com" {
-		t.Errorf("expected email=test@example.com, got %s", intent.Params["email"])
-	}
-}
-
-func TestOllamaParser_ParseIntent(t *testing.T) {
-	intentJSON := `{"type":"help","params":{},"confidence":0.99}`
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := ollamaResponse{}
-		resp.Message.Content = intentJSON
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer srv.Close()
-
-	parser := NewOllamaParser(srv.URL, "llama3")
-
-	intent, err := parser.ParseIntent(t.Context(), "help", nil)
-	if err != nil {
-		t.Fatalf("ParseIntent returned error: %v", err)
-	}
-
-	assertIntent(t, intent, domain.IntentHelp, "", 0.99)
 }
 
 func TestParseIntentResponse_WithMarkdownWrapper(t *testing.T) {
@@ -211,58 +123,5 @@ func TestBuildUserPrompt_WithHistory(t *testing.T) {
 	result := BuildUserPrompt("current message", []string{"prev1", "prev2"})
 	if result == "current message" {
 		t.Error("expected history to be included in prompt")
-	}
-}
-
-// assertIntent is a test helper that verifies common intent fields.
-func assertIntent(t *testing.T, intent *domain.Intent, expectedType domain.IntentType, expectedProjectName string, expectedConfidence float64) {
-	t.Helper()
-
-	if intent.Type != expectedType {
-		t.Errorf("expected type=%s, got %s", expectedType, intent.Type)
-	}
-	if expectedProjectName != "" {
-		if intent.Params["project_name"] != expectedProjectName {
-			t.Errorf("expected project_name=%s, got %s", expectedProjectName, intent.Params["project_name"])
-		}
-	}
-	if intent.Confidence != expectedConfidence {
-		t.Errorf("expected confidence=%f, got %f", expectedConfidence, intent.Confidence)
-	}
-}
-
-func TestClaudeParser_ParseIntent_WithHistory(t *testing.T) {
-	intentJSON := `{"type":"create_project","params":{"project_name":"Test"},"confidence":0.9}`
-
-	var receivedBody claudeRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&receivedBody)
-
-		resp := claudeResponse{
-			Content: []struct {
-				Text string `json:"text"`
-			}{
-				{Text: intentJSON},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer srv.Close()
-
-	parser := NewClaudeParser("test-key", "claude-3-haiku")
-	parser.baseURL = srv.URL
-
-	_, err := parser.ParseIntent(context.Background(), "create Test", []string{"hello", "hi there"})
-	if err != nil {
-		t.Fatalf("ParseIntent returned error: %v", err)
-	}
-
-	if len(receivedBody.Messages) == 0 {
-		t.Fatal("expected messages in request body")
-	}
-	userContent := receivedBody.Messages[0].Content
-	if userContent == "create Test" {
-		t.Error("expected history to be included in user prompt")
 	}
 }

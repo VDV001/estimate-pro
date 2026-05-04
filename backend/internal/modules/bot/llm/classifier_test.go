@@ -5,6 +5,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
@@ -75,7 +76,7 @@ func TestClassifier_Classify(t *testing.T) {
 		{
 			name:    "LLM error defaults to directed (fail open)",
 			message: "any message",
-			err:     domain.ErrUnsupportedProvider,
+			err:     errors.New("classifier LLM unavailable"),
 			want:    MentionDirected,
 		},
 	}
