@@ -17,7 +17,10 @@ func NewDOCXReader() *DOCXReader { return &DOCXReader{} }
 
 func (r *DOCXReader) Supports(ft FileType) bool { return ft == FileTypeDOCX }
 
-func (r *DOCXReader) Parse(_ context.Context, filename string, data []byte) (string, error) {
+func (r *DOCXReader) Parse(ctx context.Context, filename string, data []byte) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if len(data) == 0 {
 		return "", fmt.Errorf("docx %q: %w", filename, ErrEmptyContent)
 	}
