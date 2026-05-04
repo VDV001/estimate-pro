@@ -7,6 +7,10 @@ import (
 
 // MDReader returns Markdown bytes as text verbatim. Downstream LLM
 // consumers handle the markup themselves, so no parser is involved.
+// Unlike TXTReader, MDReader does not enforce UTF-8 validity:
+// embedded code fences may legitimately carry arbitrary bytes
+// (base64, binary samples) and rejecting them would harm real-world
+// extraction more than it would protect callers.
 type MDReader struct{}
 
 func NewMDReader() *MDReader { return &MDReader{} }
