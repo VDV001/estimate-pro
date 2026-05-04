@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -187,6 +188,76 @@ func (r *PostgresExtractionRepository) GetEvents(ctx context.Context, extraction
 		return nil, fmt.Errorf("extractor.repo.GetEvents: rows: %w", err)
 	}
 	return events, nil
+}
+
+// SaveTasks replaces the persisted task list for an extraction in a
+// single tx — the previous rows are cleared first so SaveTasks is
+// safe to call repeatedly (e.g. on retry). Storage row IDs are
+// generated here; ExtractedTask is a value object without identity.
+func (r *PostgresExtractionRepository) SaveTasks(ctx context.Context, extractionID string, tasks []domain.ExtractedTask) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("extractor.repo.SaveTasks: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM extracted_tasks WHERE extraction_id = $1`, extractionID); err != nil {
+		return fmt.Errorf("extractor.repo.SaveTasks: delete: %w", err)
+	}
+
+	for i, task := range tasks {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO extracted_tasks (id, extraction_id, name, estimate_hint, ordinal)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			uuid.New().String(), extractionID, task.Name, task.EstimateHint, i,
+		); err != nil {
+			return fmt.Errorf("extractor.repo.SaveTasks: insert[%d]: %w", i, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("extractor.repo.SaveTasks: commit: %w", err)
+	}
+	return nil
+}
+
+// ListByProject returns every extraction whose underlying document
+// belongs to projectID, newest first. Useful for the project-detail
+// page's extractions tab. Returns an empty slice (not nil-error) for
+// projects with no extractions.
+func (r *PostgresExtractionRepository) ListByProject(ctx context.Context, projectID string) ([]*domain.Extraction, error) {
+	const idsQuery = `SELECT e.id FROM extractions e
+		JOIN documents d ON d.id = e.document_id
+		WHERE d.project_id = $1
+		ORDER BY e.created_at DESC, e.id DESC`
+	rows, err := r.pool.Query(ctx, idsQuery, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("extractor.repo.ListByProject: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("extractor.repo.ListByProject: scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("extractor.repo.ListByProject: rows: %w", err)
+	}
+
+	out := make([]*domain.Extraction, 0, len(ids))
+	for _, id := range ids {
+		ext, err := r.GetByID(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("extractor.repo.ListByProject: hydrate %s: %w", id, err)
+		}
+		out = append(out, ext)
+	}
+	return out, nil
 }
 
 func (r *PostgresExtractionRepository) loadTasks(ctx context.Context, extractionID string) ([]domain.ExtractedTask, error) {
