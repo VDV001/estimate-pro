@@ -13,7 +13,9 @@ import "errors"
 // ErrLLMResponseSchemaInvalid, ErrPromptInjectionDetected,
 // ErrDocumentTooLarge) join this list as their use-cases ship.
 var (
-	ErrInvalidTaskName        = errors.New("extractor: invalid task name")
-	ErrMissingDocument        = errors.New("extractor: document id is required")
-	ErrMissingDocumentVersion = errors.New("extractor: document version id is required")
+	ErrInvalidTaskName         = errors.New("extractor: invalid task name")
+	ErrMissingDocument         = errors.New("extractor: document id is required")
+	ErrMissingDocumentVersion  = errors.New("extractor: document version id is required")
+	ErrInvalidStatusTransition = errors.New("extractor: invalid status transition")
+	ErrAlreadyCompleted        = errors.New("extractor: extraction already completed")
 )
