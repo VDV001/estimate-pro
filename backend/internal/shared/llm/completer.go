@@ -25,18 +25,18 @@ type CompletionOptions struct {
 	JSONMode bool
 }
 
-// Completer is a generic structured-completion port. Returns the raw text
-// reply from the provider plus a TokenUsage record (zero if unreported).
+// Completer is a generic structured-completion port. Returns the raw
+// text reply from the provider plus a TokenUsage record (zero if
+// unreported).
 //
-// Errors are typed (errors.Is sentinels): ErrLLMHTTP, ErrLLMResponseInvalid,
-// ErrLLMTimeout. Callers must not parse error strings — they use errors.Is
-// against the package's sentinels (defined in domain.go and errors.go in
-// later tasks).
+// Errors are typed (errors.Is sentinels): ErrLLMHTTP,
+// ErrLLMResponseInvalid, ErrLLMTimeout — all defined in domain.go.
+// Callers must not parse error strings.
 //
 // Implementations: ClaudeAdapter, OpenAIAdapter, OllamaAdapter (in this
 // package). Bot module wraps a Completer in BotIntentParser for intent
 // classification; future extractor module uses Completer directly for
 // task extraction.
 type Completer interface {
-	Complete(ctx context.Context, systemPrompt, userPrompt string, opts CompletionOptions) (string, TokenUsage, error)
+	Complete(ctx context.Context, systemPrompt, userPrompt string, opts CompletionOptions) (text string, usage TokenUsage, err error)
 }

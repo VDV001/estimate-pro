@@ -16,8 +16,12 @@ import "context"
 //     ErrConfigNotFound if no system config row exists.
 //   - GetByUserID returns the user-scoped config. Returns
 //     ErrConfigNotFound if no row matches userID.
-//   - Upsert inserts a new config or updates an existing one matched on
-//     (UserID). The repository assigns ID if cfg.ID is empty.
+//   - Upsert inserts a new config or updates an existing one matched
+//     on UserID. Empty UserID ("") is treated as the singleton
+//     system-config row — implementations must enforce uniqueness
+//     (e.g. via a partial UNIQUE index `WHERE user_id IS NULL` or by
+//     converting "" to NULL at the SQL boundary). The repository
+//     assigns ID if cfg.ID is empty.
 //
 // Implementations must propagate errors.Is(err, ErrConfigNotFound) for
 // the not-found case so callers can fall back to env config or system
