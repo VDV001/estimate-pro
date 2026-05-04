@@ -48,6 +48,10 @@ import (
 	estimationRepo "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/repo"
 	estimationUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/usecase"
 
+	extractorHandler "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/handler"
+	extractorRepo "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/repository"
+	extractorUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/usecase"
+
 	notifyModule "github.com/VDV001/estimate-pro/backend/internal/modules/notify"
 	notifyChannel "github.com/VDV001/estimate-pro/backend/internal/modules/notify/channel"
 	notifyHandler "github.com/VDV001/estimate-pro/backend/internal/modules/notify/handler"
@@ -177,6 +181,17 @@ func main() {
 	documentH := documentHandler.New(documentUC)
 	estimationH := estimationHandler.New(estimationUC, &memberRoleAdapter{memberRepo})
 
+	// Extractor module (PR-B Document Pipeline) — gated behind the
+	// FEATURE_DOCUMENT_PIPELINE_ENABLED flag so a fresh deploy stays
+	// dormant until ops opts in. Worker integration + LLM call land
+	// in PR-B3.
+	var extractorH *extractorHandler.Handler
+	if cfg.Extractor.Enabled {
+		extractorRepository := extractorRepo.NewPostgresExtractionRepository(pool)
+		extractorUC := extractorUsecase.NewExtractor(extractorRepository, cfg.Extractor.MaxBytes)
+		extractorH = extractorHandler.New(extractorUC)
+	}
+
 	// Router
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -260,6 +275,9 @@ func main() {
 	estimationH.Register(r, jwtService, membershipMW)
 	notifyH.Register(r, jwtService)
 	botH.Register(r)
+	if extractorH != nil {
+		extractorH.Register(r, jwtService, membershipMW)
+	}
 
 	// Server
 	srv := &http.Server{
