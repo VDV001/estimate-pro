@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.12.9-blue)
+![Version](https://img.shields.io/badge/version-0.13.0-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,19 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.12.9`**
+**Текущая версия: `0.13.0`**
 
 ### Changelog
+
+#### v0.13.0 (2026-05-04)
+- refactor(llm): провайдерные адаптеры (Claude/OpenAI/Grok/Ollama) вынесены из `bot/llm` в новый shared-пакет `internal/shared/llm`. Два интерфейса — `IntentParser` (raw JSON для bot) и `Completer` (generic structured-completion для будущего extractor) — один adapter struct на провайдер реализует оба. `TokenUsage` value object с `NewTokenUsage(prompt, completion)` (clamps + recomputes Total) и `Add` для агрегации между LLM-вызовами.
+- feat(llm): typed sentinel errors `ErrLLMHTTP`/`ErrLLMResponseInvalid`/`ErrLLMTimeout`/`ErrInvalidProvider`/`ErrEmptyModel`/`ErrEmptyAPIKey`/`ErrConfigNotFound` — callers матчат через `errors.Is`. HTTP body-preview capped at 200 байт (`bodyPreview`) во всех адаптерах для защиты от утечки API key/prompt в error envelope. Explicit 60s timeout per adapter.
+- refactor(security): prompt-injection detection (30 patterns) и deflection pool (15 ответов) вынесены в `internal/shared/security`. `IsPromptInjection(text) bool` + `PromptInjectionDeflection() string` (CSPRNG для unpredictability). `bot/usecase/filter.go` делегирует, `bot/llm/personality.go` больше не экспортирует patterns/deflections.
+- refactor(bot/llm): новый facade `BotIntentParser` (`bot/llm/intent_parser.go`) wrap'ает `sharedllm.IntentParser` и owns bot-specific concerns — `BuildUserPrompt`, `parseIntentResponse` (raw JSON → `*domain.Intent`), RawText attach, slog с `tokens_total`. Удалены legacy `bot/llm/{claude,openai,grok,ollama}.go` (~641 строк HTTP-кода).
+- refactor(bot/llm): Formatter теперь делегирует HTTP в `sharedllm.Completer` — `callClaude`/`callOpenAICompat`/`callOllama` удалены. Nil completer → graceful fallback на raw actionResult, поведение для пользователя не меняется. `MaxTokens=512` для formatter output bound. PR #42 status-check контракт preserved.
+- refactor(bot/domain): `LLMProviderType`, `LLMConfig`, `LLMConfigRepository` — type aliases на shared/llm. Все existing imports `bot/domain.ProviderClaude` etc продолжают работать прозрачно. `ErrUnsupportedProvider` удалён (no consumers — sentinels из shared).
+- refactor(cmd/server): composition root конструирует `*llm.Formatter` через `buildEnvFormatterCompleter(envLLM)` и инжектит pre-built в `botUsecase.New` — usecase больше не импортирует `shared/llm` напрямую.
+- 32 commits на ветке. 13 RED+GREEN пар. Reviewer verdict: TDD 9 / DDD 8 / CA 9 — APPROVE. Backend tech-debt после релиза: 0 для bot module, follow-up на arch-check rule 5 enum (LLMConfig) и foundation review squash — оба non-blocking.
 
 #### v0.12.9 (2026-05-04)
 - refactor(bot): UI-строки бота извлечены из `bot/usecase/{bot,intent}.go` в новый presentation-пакет `bot/handler/messages` — 47 spots (prompts, errors, success-сообщения, button-labels, help, format-helpers). Naming: `Btn*`/`Toast*`/`Ask*`/`Confirm*`/`Err*`/`Memory*`; const для статичного текста, func для format-строк. `messages` зависит только от stdlib, `usecase → messages` — однонаправленная инфраструктурная связь. Local helpers `projectNotFoundMsg`/`memberNotFoundMsg`/`statusEmoji` удалены — callers используют `messages.*`. Поведение не меняется, existing тесты остаются зелёными как regression-net (#37).
