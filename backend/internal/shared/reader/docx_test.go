@@ -3,6 +3,7 @@ package reader_test
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"strings"
@@ -104,6 +105,21 @@ func zipWithBrokenXML(t *testing.T) []byte {
 		t.Fatalf("zip close: %v", err)
 	}
 	return buf.Bytes()
+}
+
+func TestDOCXReader_Parse_RespectsCancelledContext(t *testing.T) {
+	r := reader.NewDOCXReader()
+	hello, err := os.ReadFile("testdata/hello.docx")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err := r.Parse(ctx, "hello.docx", hello); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Parse err=%v, want errors.Is context.Canceled", err)
+	}
 }
 
 // Compile-time check: DOCXReader satisfies DocumentReader.
