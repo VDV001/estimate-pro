@@ -6,28 +6,26 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
+	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 )
 
-// NewParser creates an LLMParser for the given provider type.
+// NewParser creates a bot-domain LLMParser by composing a shared adapter
+// with the bot's prompt-building + intent-JSON-parsing logic
+// ([BotIntentParser]). Provider type and base URL semantics defer to
+// [sharedllm.NewParser].
+//
+// Errors propagate the shared sentinels [sharedllm.ErrInvalidProvider],
+// [sharedllm.ErrEmptyModel], [sharedllm.ErrEmptyAPIKey] — callers detect
+// via errors.Is.
 func NewParser(provider domain.LLMProviderType, apiKey, model, baseURL string) (domain.LLMParser, error) {
-	slog.Info("llm.NewParser", slog.String("provider", string(provider)), slog.String("model", model))
-	switch provider {
-	case domain.ProviderClaude:
-		return NewClaudeParser(apiKey, model), nil
-	case domain.ProviderOpenAI:
-		return NewOpenAIParser(apiKey, model), nil
-	case domain.ProviderGrok:
-		return NewGrokParser(apiKey, model), nil
-	case domain.ProviderOllama:
-		return NewOllamaParser(baseURL, model), nil
-	default:
-		slog.Error("llm.NewParser: unsupported provider", slog.String("provider", string(provider)))
-		return nil, fmt.Errorf("NewParser: %w: %s", domain.ErrUnsupportedProvider, provider)
+	inner, err := sharedllm.NewParser(provider, apiKey, model, baseURL)
+	if err != nil {
+		return nil, err
 	}
+	return NewBotIntentParser(inner), nil
 }
 
 // parseIntentResponse extracts JSON from the LLM response text and unmarshals it into an Intent.
