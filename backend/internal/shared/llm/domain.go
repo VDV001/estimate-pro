@@ -95,3 +95,14 @@ func NewLLMConfig(userID string, provider LLMProviderType, apiKey, model, baseUR
 
 // IsSystem reports whether this config has no user owner (system-wide).
 func (c *LLMConfig) IsSystem() bool { return c.UserID == "" }
+
+// String redacts the APIKey before stringifying — guards against
+// accidental leakage when a config is logged via slog/%+v/%v. Production
+// logs must never contain raw API keys.
+func (c *LLMConfig) String() string {
+	if c == nil {
+		return "<nil LLMConfig>"
+	}
+	return fmt.Sprintf("LLMConfig{ID:%q UserID:%q Provider:%q Model:%q BaseURL:%q APIKey:[REDACTED]}",
+		c.ID, c.UserID, string(c.Provider), c.Model, c.BaseURL)
+}

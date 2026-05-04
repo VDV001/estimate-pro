@@ -5,6 +5,7 @@ package llm_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/VDV001/estimate-pro/backend/internal/shared/llm"
@@ -102,5 +103,26 @@ func TestNewLLMConfig_TimestampsSet(t *testing.T) {
 	}
 	if cfg.UpdatedAt.IsZero() {
 		t.Error("UpdatedAt is zero")
+	}
+}
+
+func TestLLMConfig_StringRedactsAPIKey(t *testing.T) {
+	cfg, err := llm.NewLLMConfig("user-1", llm.ProviderClaude, "sk-secret-key-do-not-leak", "claude-test", "https://api.example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	s := cfg.String()
+	if !strings.Contains(s, "[REDACTED]") {
+		t.Errorf("String() did not contain [REDACTED]: %s", s)
+	}
+	if strings.Contains(s, "sk-secret-key-do-not-leak") {
+		t.Errorf("String() leaked API key: %s", s)
+	}
+}
+
+func TestLLMConfig_StringHandlesNil(t *testing.T) {
+	var cfg *llm.LLMConfig
+	if got := cfg.String(); got != "<nil LLMConfig>" {
+		t.Errorf("nil String() = %q, want <nil LLMConfig>", got)
 	}
 }
