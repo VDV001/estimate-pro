@@ -317,6 +317,166 @@ func TestPostgresExtractionRepository_GetActiveByDocumentVersion_NotFound(t *tes
 	}
 }
 
+// ---------- SaveTasks ----------
+
+func TestPostgresExtractionRepository_SaveTasks_RoundTrip(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+	ctx := t.Context()
+
+	ext := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
+	if err := repo.Create(ctx, ext); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	t1, _ := domain.NewExtractedTask("Design auth", "8h")
+	t2, _ := domain.NewExtractedTask("Implement login", "16h")
+	t3, _ := domain.NewExtractedTask("Write integration tests", "")
+	tasks := []domain.ExtractedTask{t1, t2, t3}
+
+	if err := repo.SaveTasks(ctx, ext.ID, tasks); err != nil {
+		t.Fatalf("SaveTasks: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, ext.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if len(got.Tasks) != 3 {
+		t.Fatalf("Tasks len=%d, want 3", len(got.Tasks))
+	}
+	for i, want := range tasks {
+		if got.Tasks[i] != want {
+			t.Errorf("Tasks[%d]=%#v, want %#v", i, got.Tasks[i], want)
+		}
+	}
+}
+
+func TestPostgresExtractionRepository_SaveTasks_ReplacesPrevious(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+	ctx := t.Context()
+
+	ext := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
+	if err := repo.Create(ctx, ext); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	first, _ := domain.NewExtractedTask("First", "1h")
+	if err := repo.SaveTasks(ctx, ext.ID, []domain.ExtractedTask{first}); err != nil {
+		t.Fatalf("SaveTasks first: %v", err)
+	}
+
+	// Second SaveTasks must replace, not append.
+	a, _ := domain.NewExtractedTask("A", "")
+	b, _ := domain.NewExtractedTask("B", "")
+	if err := repo.SaveTasks(ctx, ext.ID, []domain.ExtractedTask{a, b}); err != nil {
+		t.Fatalf("SaveTasks second: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, ext.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if len(got.Tasks) != 2 {
+		t.Fatalf("Tasks len=%d, want 2", len(got.Tasks))
+	}
+	if got.Tasks[0].Name != "A" || got.Tasks[1].Name != "B" {
+		t.Errorf("Tasks=%v, want [A, B]", got.Tasks)
+	}
+}
+
+func TestPostgresExtractionRepository_SaveTasks_EmptyClears(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+	ctx := t.Context()
+
+	ext := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
+	if err := repo.Create(ctx, ext); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	first, _ := domain.NewExtractedTask("Initial", "")
+	if err := repo.SaveTasks(ctx, ext.ID, []domain.ExtractedTask{first}); err != nil {
+		t.Fatalf("SaveTasks first: %v", err)
+	}
+
+	if err := repo.SaveTasks(ctx, ext.ID, nil); err != nil {
+		t.Fatalf("SaveTasks empty: %v", err)
+	}
+	got, err := repo.GetByID(ctx, ext.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if len(got.Tasks) != 0 {
+		t.Errorf("Tasks len=%d, want 0", len(got.Tasks))
+	}
+}
+
+// ---------- ListByProject ----------
+
+func TestPostgresExtractionRepository_ListByProject(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+	ctx := t.Context()
+
+	// Two documents in the same project, each with an extraction.
+	doc2 := insertTestDocument(t, fx.pool, fx.projectID, fx.userID)
+	ver2 := insertTestDocumentVersion(t, fx.pool, doc2, fx.userID)
+
+	ext1 := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
+	if err := repo.Create(ctx, ext1); err != nil {
+		t.Fatalf("Create ext1: %v", err)
+	}
+	// Force a different created_at on ext2 so ordering is observable.
+	time.Sleep(2 * time.Millisecond)
+	ext2 := mustNewExtraction(t, doc2, ver2)
+	if err := repo.Create(ctx, ext2); err != nil {
+		t.Fatalf("Create ext2: %v", err)
+	}
+
+	// A second project with its own extraction — must NOT show up in fx.projectID list.
+	otherProj := insertTestProject(t, fx.pool, mustWorkspaceFor(t, fx.pool, fx.userID), fx.userID)
+	otherDoc := insertTestDocument(t, fx.pool, otherProj, fx.userID)
+	otherVer := insertTestDocumentVersion(t, fx.pool, otherDoc, fx.userID)
+	other := mustNewExtraction(t, otherDoc, otherVer)
+	if err := repo.Create(ctx, other); err != nil {
+		t.Fatalf("Create other: %v", err)
+	}
+
+	got, err := repo.ListByProject(ctx, fx.projectID)
+	if err != nil {
+		t.Fatalf("ListByProject: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len=%d, want 2", len(got))
+	}
+	// Newest first.
+	if got[0].ID != ext2.ID {
+		t.Errorf("got[0].ID=%q, want %q (ext2 newer)", got[0].ID, ext2.ID)
+	}
+	if got[1].ID != ext1.ID {
+		t.Errorf("got[1].ID=%q, want %q", got[1].ID, ext1.ID)
+	}
+}
+
+func TestPostgresExtractionRepository_ListByProject_Empty(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+
+	got, err := repo.ListByProject(t.Context(), fx.projectID)
+	if err != nil {
+		t.Fatalf("ListByProject: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("len=%d, want 0", len(got))
+	}
+}
+
+func mustWorkspaceFor(t *testing.T, pool *pgxpool.Pool, userID string) string {
+	t.Helper()
+	return insertTestWorkspace(t, pool, userID)
+}
+
 func TestPostgresExtractionRepository_GetActiveByDocumentVersion_IgnoresFailed(t *testing.T) {
 	fx := newExtractorTestFixture(t)
 	repo := repository.NewPostgresExtractionRepository(fx.pool)
