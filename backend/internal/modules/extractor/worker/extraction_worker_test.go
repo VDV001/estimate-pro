@@ -266,8 +266,9 @@ func TestProcess_PendingTransitionsToProcessing(t *testing.T) {
 	source := &capturingSource{respData: []byte{}, respName: "doc.pdf"}
 	reader := &capturingReader{respText: ""}
 	security := &capturingSecurity{verdict: false}
+	llm := &capturingCompleter{}
 
-	w := worker.NewExtractionWorker(store, source, reader, panickingCompleter{}, security)
+	w := worker.NewExtractionWorker(store, source, reader, llm, security)
 
 	// Process must not return an error after the transition lands;
 	// later RED pairs will tighten this to "and Fetch was called".
@@ -311,12 +312,14 @@ func TestProcess_AfterTransition_FetchesAndParsesDocument(t *testing.T) {
 	store := &fakeStore{got: ext}
 	source := &capturingSource{respData: []byte("PDF-bytes"), respName: "spec.pdf"}
 	reader := &capturingReader{respText: "extracted plain text"}
-	// Security must be reachable here because Process now calls it
-	// after Parse; verdict=false keeps the body on the happy path so
-	// this test still scopes only to download + parse assertions.
+	// Security + LLM must be reachable here because Process now
+	// calls them after Parse; verdict=false keeps the body on the
+	// happy path so this test still scopes only to download + parse
+	// assertions.
 	security := &capturingSecurity{verdict: false}
+	llm := &capturingCompleter{}
 
-	w := worker.NewExtractionWorker(store, source, reader, panickingCompleter{}, security)
+	w := worker.NewExtractionWorker(store, source, reader, llm, security)
 
 	if err := w.Process(context.Background(), worker.ExtractionArgs{ExtractionID: ext.ID}); err != nil {
 		t.Fatalf("expected nil error after download+parse, got %v", err)
