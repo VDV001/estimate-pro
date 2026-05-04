@@ -46,6 +46,10 @@ func TooManyRequests(w http.ResponseWriter, message string) {
 	writeJSON(w, http.StatusTooManyRequests, "TOO_MANY_REQUESTS", message)
 }
 
+func PayloadTooLarge(w http.ResponseWriter, message string) {
+	writeJSON(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", message)
+}
+
 func InternalError(w http.ResponseWriter, message string) {
 	writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", message)
 }
