@@ -14,6 +14,10 @@ type FileType string
 const (
 	FileTypePDF  FileType = "pdf"
 	FileTypeDOCX FileType = "docx"
+	FileTypeMD   FileType = "md"
+	FileTypeTXT  FileType = "txt"
+	FileTypeCSV  FileType = "csv"
+	FileTypeXLSX FileType = "xlsx"
 )
 
 func (ft FileType) String() string { return string(ft) }
@@ -27,6 +31,14 @@ func ParseFileType(ext string) (FileType, error) {
 		return FileTypePDF, nil
 	case "docx":
 		return FileTypeDOCX, nil
+	case "md":
+		return FileTypeMD, nil
+	case "txt":
+		return FileTypeTXT, nil
+	case "csv":
+		return FileTypeCSV, nil
+	case "xlsx":
+		return FileTypeXLSX, nil
 	default:
 		return "", ErrUnsupportedFormat
 	}
