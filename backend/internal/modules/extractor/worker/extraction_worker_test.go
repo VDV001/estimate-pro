@@ -548,3 +548,82 @@ func TestProcess_HappyPath_PersistsTasksAndCompletes(t *testing.T) {
 		t.Fatalf("expected event processing->completed, got %s->%s", finalEvent.FromStatus, finalEvent.ToStatus)
 	}
 }
+
+// TestProcess_PipelineErrors_MarkFailed pins the failure-recovery
+// guarantee. Any unhandled error inside the pipeline (Fetch /
+// Parse / LLM / SaveTasks) — that is, any error path that has
+// not already gone through markFailed (security / schema-invalid
+// already do) — must transition the extraction to failed before
+// the worker returns. Without this, river retries would observe
+// the extraction stuck in 'processing' and either skip
+// idempotently (status guard) or double-process — both wrong.
+//
+// Table-driven over the realistic transient/permanent error
+// surfaces that surface upstream of MarkCompleted.
+func TestProcess_PipelineErrors_MarkFailed(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(*capturingSource, *capturingReader, *capturingCompleter)
+		// Each case wires up the fakes to trigger a different stage's
+		// failure; the assertion is identical across cases — the
+		// extraction lands in failed and zero tasks are persisted.
+	}{
+		{
+			name: "fetch_error",
+			setup: func(s *capturingSource, _ *capturingReader, _ *capturingCompleter) {
+				s.respErr = errors.New("s3: connection refused")
+			},
+		},
+		{
+			name: "parse_error",
+			setup: func(s *capturingSource, r *capturingReader, _ *capturingCompleter) {
+				s.respData = []byte("PDF-bytes")
+				s.respName = "spec.pdf"
+				r.respErr = errors.New("reader: corrupted file")
+			},
+		},
+		{
+			name: "llm_error",
+			setup: func(s *capturingSource, r *capturingReader, c *capturingCompleter) {
+				s.respData = []byte("PDF-bytes")
+				s.respName = "spec.pdf"
+				r.respText = "doc text"
+				c.respErr = errors.New("llm: 503 Service Unavailable")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ext := pendingExtraction(t)
+			store := &fakeStore{got: ext}
+			source := &capturingSource{}
+			reader := &capturingReader{}
+			security := &capturingSecurity{verdict: false}
+			llm := &capturingCompleter{respText: `{"tasks":[]}`}
+			tc.setup(source, reader, llm)
+
+			w := worker.NewExtractionWorker(store, source, reader, llm, security)
+
+			err := w.Process(context.Background(), worker.ExtractionArgs{ExtractionID: ext.ID})
+			if err == nil {
+				t.Fatalf("expected non-nil error from %s case", tc.name)
+			}
+
+			// Two UpdateStatus calls: pending->processing, then
+			// processing->failed when the pipeline error rolled up.
+			if got := len(store.updateCalls); got != 2 {
+				t.Fatalf("expected 2 UpdateStatus calls (pending->processing, processing->failed), got %d", got)
+			}
+			if got := store.updateCalls[1].Status; got != domain.StatusFailed {
+				t.Fatalf("expected ext.Status=failed after pipeline error, got %s", got)
+			}
+			if got := store.updateEvents[1].ErrorMessage; got == "" {
+				t.Fatalf("expected non-empty audit ErrorMessage on processing->failed transition")
+			}
+			if store.saveCallCount != 0 {
+				t.Fatalf("expected zero SaveTasks calls when pipeline failed before persist, got %d", store.saveCallCount)
+			}
+		})
+	}
+}
