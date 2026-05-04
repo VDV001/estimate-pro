@@ -7,11 +7,7 @@ import "errors"
 
 // Sentinel errors. Callers match via errors.Is. ADR-014 forbids dead
 // sentinels — each new sentinel lands together with the consumer
-// branch that returns it, never speculatively. Future PR-B2/B3
-// sentinels (ErrInvalidStatusTransition, ErrAlreadyCompleted,
-// ErrMissingDocument, ErrCancelled, ErrExtractionNotFound,
-// ErrLLMResponseSchemaInvalid, ErrPromptInjectionDetected,
-// ErrDocumentTooLarge) join this list as their use-cases ship.
+// branch that returns it, never speculatively.
 var (
 	ErrInvalidTaskName         = errors.New("extractor: invalid task name")
 	ErrMissingDocument         = errors.New("extractor: document id is required")
@@ -22,4 +18,5 @@ var (
 	ErrInvalidActor            = errors.New("extractor: actor is required")
 	ErrExtractionNotFound      = errors.New("extractor: extraction not found")
 	ErrDocumentTooLarge        = errors.New("extractor: document exceeds maximum allowed size")
+	ErrPromptInjectionDetected = errors.New("extractor: prompt injection detected in document text")
 )

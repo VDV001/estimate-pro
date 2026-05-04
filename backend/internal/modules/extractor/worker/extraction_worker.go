@@ -99,12 +99,37 @@ func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) err
 
 	parseCtx, cancel := context.WithTimeout(ctx, readerTimeout)
 	defer cancel()
-	_, err = w.reader.Parse(parseCtx, filename, data)
+	text, err := w.reader.Parse(parseCtx, filename, data)
 	if err != nil {
 		return fmt.Errorf("worker.Process parse document %q: %w", filename, err)
 	}
 
+	if w.security.IsPromptInjection(text) {
+		if err := w.markFailed(ctx, ext, promptInjectionReason); err != nil {
+			return fmt.Errorf("worker.Process record prompt-injection failure: %w", err)
+		}
+		return fmt.Errorf("worker.Process security guard for extraction %q: %w", ext.ID, domain.ErrPromptInjectionDetected)
+	}
+
 	return nil
+}
+
+// promptInjectionReason is the audit-event reason recorded when the
+// security guard fires. Kept as a const so the failure UX, the
+// audit trail, and any future operator dashboard share one source
+// of truth.
+const promptInjectionReason = "prompt injection detected"
+
+// markFailed records a processing->failed transition with the
+// supplied reason. The reason is stored both on the Extraction
+// (via Extraction.MarkFailed) and on the audit ExtractionEvent
+// (via NewExtractionEvent's errorMessage parameter) so it is
+// visible to operators reading either the current row or the
+// event timeline.
+func (w *ExtractionWorker) markFailed(ctx context.Context, ext *domain.Extraction, reason string) error {
+	return w.transition(ctx, ext, func(e *domain.Extraction) error {
+		return e.MarkFailed(reason)
+	}, reason)
 }
 
 // transition mutates the extraction via the supplied state-machine

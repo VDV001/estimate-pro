@@ -236,14 +236,16 @@ func TestProcess_StatusNotPending_SkipsIdempotently(t *testing.T) {
 func TestProcess_PendingTransitionsToProcessing(t *testing.T) {
 	ext := pendingExtraction(t)
 	store := &fakeStore{got: ext}
-	// Source + Reader are inert capturers because subsequent Process
-	// stages (download / parse) now run after the transition; this
-	// test only asserts on the transition itself, the dedicated
-	// Fetch/Parse test owns those assertions.
+	// Source + Reader + Security are inert because subsequent Process
+	// stages (download / parse / security) now run after the
+	// transition; this test only asserts on the transition itself,
+	// the dedicated Fetch/Parse and prompt-injection tests own
+	// those assertions.
 	source := &capturingSource{respData: []byte{}, respName: "doc.pdf"}
 	reader := &capturingReader{respText: ""}
+	security := &capturingSecurity{verdict: false}
 
-	w := worker.NewExtractionWorker(store, source, reader, panickingCompleter{}, panickingSecurity{})
+	w := worker.NewExtractionWorker(store, source, reader, panickingCompleter{}, security)
 
 	// Process must not return an error after the transition lands;
 	// later RED pairs will tighten this to "and Fetch was called".
@@ -287,8 +289,12 @@ func TestProcess_AfterTransition_FetchesAndParsesDocument(t *testing.T) {
 	store := &fakeStore{got: ext}
 	source := &capturingSource{respData: []byte("PDF-bytes"), respName: "spec.pdf"}
 	reader := &capturingReader{respText: "extracted plain text"}
+	// Security must be reachable here because Process now calls it
+	// after Parse; verdict=false keeps the body on the happy path so
+	// this test still scopes only to download + parse assertions.
+	security := &capturingSecurity{verdict: false}
 
-	w := worker.NewExtractionWorker(store, source, reader, panickingCompleter{}, panickingSecurity{})
+	w := worker.NewExtractionWorker(store, source, reader, panickingCompleter{}, security)
 
 	if err := w.Process(context.Background(), worker.ExtractionArgs{ExtractionID: ext.ID}); err != nil {
 		t.Fatalf("expected nil error after download+parse, got %v", err)
