@@ -123,6 +123,13 @@ func buildLLMPrompt(text string) (system, user string) {
 	return extractionSystemPrompt, "Текст ТЗ:\n\n" + text
 }
 
+// pipelineFailureReason summarises a generic pipeline-stage error
+// for the audit trail when the failure does not have its own
+// dedicated reason (security / schema). Operators read this and
+// know to drill into structured logs (slog, observability TBD)
+// for the originating sentinel.
+const pipelineFailureReason = "pipeline error"
+
 func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) error {
 	ext, err := w.store.GetByID(ctx, args.ExtractionID)
 	if err != nil {
@@ -135,23 +142,47 @@ func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) err
 		return fmt.Errorf("worker.Process transition pending->processing: %w", err)
 	}
 
+	if err := w.runPipeline(ctx, ext); err != nil {
+		// If the pipeline did not already record a failure (security /
+		// schema branches call markFailed themselves), capture it now
+		// so the extraction never lingers in 'processing' after the
+		// worker returns. River retry semantics depend on the audit
+		// trail being in sync with the lifecycle.
+		if ext.Status == domain.StatusProcessing {
+			if markErr := w.markFailed(ctx, ext, pipelineFailureReason); markErr != nil {
+				return fmt.Errorf("worker.Process recover MarkFailed for extraction %q: %w (original: %v)", ext.ID, markErr, err)
+			}
+		}
+		return fmt.Errorf("worker.Process pipeline for extraction %q: %w", ext.ID, err)
+	}
+	return nil
+}
+
+// runPipeline drives the post-transition stages: download, parse,
+// security guard, LLM dispatch, schema validate, persist, complete.
+// Errors propagate unwrapped; Process catches them and records a
+// processing->failed transition if the pipeline did not already.
+// The security and schema-invalid stages bypass that catch-all by
+// landing the failure themselves (their reason is more specific
+// than the generic pipelineFailureReason).
+func (w *ExtractionWorker) runPipeline(ctx context.Context, ext *domain.Extraction) error {
 	data, filename, err := w.source.Fetch(ctx, ext.DocumentVersionID)
 	if err != nil {
-		return fmt.Errorf("worker.Process fetch document %q: %w", ext.DocumentVersionID, err)
+		return fmt.Errorf("fetch document %q: %w", ext.DocumentVersionID, err)
 	}
 
 	parseCtx, cancel := context.WithTimeout(ctx, readerTimeout)
 	defer cancel()
 	text, err := w.reader.Parse(parseCtx, filename, data)
 	if err != nil {
-		return fmt.Errorf("worker.Process parse document %q: %w", filename, err)
+		return fmt.Errorf("parse document %q: %w", filename, err)
 	}
 
 	if w.security.IsPromptInjection(text) {
 		if err := w.markFailed(ctx, ext, promptInjectionReason); err != nil {
-			return fmt.Errorf("worker.Process record prompt-injection failure: %w", err)
+			return fmt.Errorf("record prompt-injection failure: %w", err)
 		}
-		return fmt.Errorf("worker.Process security guard for extraction %q: %w", ext.ID, domain.ErrPromptInjectionDetected)
+		return fmt.Errorf("security guard: %w", domain.ErrPromptInjectionDetected)
 	}
 
 	systemPrompt, userPrompt := buildLLMPrompt(text)
@@ -160,36 +191,33 @@ func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) err
 		JSONMode:  true,
 	})
 	if err != nil {
-		return fmt.Errorf("worker.Process LLM dispatch for extraction %q: %w", ext.ID, err)
+		return fmt.Errorf("LLM dispatch: %w", err)
 	}
 
 	parsed, err := parseLLMResponse(rawResponse)
 	if err != nil {
 		if markErr := w.markFailed(ctx, ext, schemaInvalidReason); markErr != nil {
-			return fmt.Errorf("worker.Process record schema-invalid failure: %w", markErr)
+			return fmt.Errorf("record schema-invalid failure: %w", markErr)
 		}
-		return fmt.Errorf("worker.Process LLM response invalid for extraction %q: %w", ext.ID, domain.ErrLLMResponseSchemaInvalid)
+		return fmt.Errorf("LLM response invalid: %w", domain.ErrLLMResponseSchemaInvalid)
 	}
 
 	tasks, err := mapToDomainTasks(parsed)
 	if err != nil {
-		// Constructor-side invariants (e.g. ErrInvalidTaskName) catch
-		// parser bugs that slip through the schema gate; treat as a
-		// schema failure so the operator surface is uniform.
 		if markErr := w.markFailed(ctx, ext, schemaInvalidReason); markErr != nil {
-			return fmt.Errorf("worker.Process record domain-invariant failure: %w", markErr)
+			return fmt.Errorf("record domain-invariant failure: %w", markErr)
 		}
-		return fmt.Errorf("worker.Process map LLM tasks for extraction %q: %w", ext.ID, err)
+		return fmt.Errorf("map LLM tasks: %w", err)
 	}
 
 	if err := w.store.SaveTasks(ctx, ext.ID, tasks); err != nil {
-		return fmt.Errorf("worker.Process persist tasks for extraction %q: %w", ext.ID, err)
+		return fmt.Errorf("persist tasks: %w", err)
 	}
 
 	if err := w.transition(ctx, ext, func(e *domain.Extraction) error {
 		return e.MarkCompleted(tasks)
 	}, ""); err != nil {
-		return fmt.Errorf("worker.Process transition processing->completed: %w", err)
+		return fmt.Errorf("transition processing->completed: %w", err)
 	}
 
 	return nil
