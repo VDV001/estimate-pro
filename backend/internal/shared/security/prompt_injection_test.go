@@ -77,7 +77,7 @@ func TestIsPromptInjection_CaseInsensitive(t *testing.T) {
 }
 
 func TestPromptInjectionDeflection_NonEmpty(t *testing.T) {
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		got := security.PromptInjectionDeflection()
 		if got == "" {
 			t.Fatalf("call #%d returned empty deflection", i)
@@ -91,7 +91,7 @@ func TestPromptInjectionDeflection_NonEmpty(t *testing.T) {
 func TestPromptInjectionDeflection_DrawsFromPool(t *testing.T) {
 	// Probabilistic — over 50 draws from pool ≥10, expect ≥2 distinct outputs.
 	seen := make(map[string]struct{})
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		seen[security.PromptInjectionDeflection()] = struct{}{}
 	}
 	if len(seen) < 2 {
