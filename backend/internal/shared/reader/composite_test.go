@@ -41,9 +41,20 @@ func TestComposite_Parse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read hello.docx: %v", err)
 	}
+	helloXLSX := buildXLSX(t, map[string][][]string{
+		"Sheet1": {{"a", "b"}, {"1", "2"}},
+	}, []string{"Sheet1"})
 
 	const tinyMax = int64(100) // smaller than hello.pdf (587 bytes)
-	full := reader.NewComposite(0, reader.NewPDFReader(), reader.NewDOCXReader())
+	full := reader.NewComposite(0,
+		reader.NewPDFReader(),
+		reader.NewDOCXReader(),
+		reader.NewMDReader(),
+		reader.NewTXTReader(),
+		reader.NewCSVReader(),
+		reader.NewXLSXReader(),
+	)
+	pdfDocxOnly := reader.NewComposite(0, reader.NewPDFReader(), reader.NewDOCXReader())
 	tight := reader.NewComposite(tinyMax, reader.NewPDFReader(), reader.NewDOCXReader())
 	emptyComposite := reader.NewComposite(0)
 
@@ -58,10 +69,15 @@ func TestComposite_Parse(t *testing.T) {
 		{name: "PDF route", c: full, filename: "doc.pdf", data: hello, wantNonZero: true},
 		{name: "PDF route with .PDF uppercase", c: full, filename: "doc.PDF", data: hello, wantNonZero: true},
 		{name: "DOCX route", c: full, filename: "doc.docx", data: helloDocx, wantNonZero: true},
+		{name: "MD route", c: full, filename: "notes.md", data: []byte("# heading"), wantNonZero: true},
+		{name: "TXT route", c: full, filename: "log.txt", data: []byte("hello"), wantNonZero: true},
+		{name: "CSV route", c: full, filename: "rows.csv", data: []byte("a,b\n1,2"), wantNonZero: true},
+		{name: "XLSX route", c: full, filename: "book.xlsx", data: helloXLSX, wantNonZero: true},
 		{name: "oversize fails before dispatch", c: tight, filename: "doc.pdf", data: hello, wantErrIs: reader.ErrFileTooLarge},
-		{name: "unsupported extension", c: full, filename: "doc.txt", data: []byte("hi"), wantErrIs: reader.ErrUnsupportedFormat},
+		{name: "unsupported extension", c: full, filename: "doc.html", data: []byte("hi"), wantErrIs: reader.ErrUnsupportedFormat},
 		{name: "filename without extension", c: full, filename: "noext", data: []byte("hi"), wantErrIs: reader.ErrUnsupportedFormat},
 		{name: "empty composite rejects PDF", c: emptyComposite, filename: "doc.pdf", data: hello, wantErrIs: reader.ErrUnsupportedFormat},
+		{name: "partial composite rejects MD", c: pdfDocxOnly, filename: "notes.md", data: []byte("# heading"), wantErrIs: reader.ErrUnsupportedFormat},
 	}
 
 	for _, tt := range tests {
