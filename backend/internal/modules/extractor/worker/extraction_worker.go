@@ -163,14 +163,57 @@ func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) err
 		return fmt.Errorf("worker.Process LLM dispatch for extraction %q: %w", ext.ID, err)
 	}
 
-	if _, err := parseLLMResponse(rawResponse); err != nil {
+	parsed, err := parseLLMResponse(rawResponse)
+	if err != nil {
 		if markErr := w.markFailed(ctx, ext, schemaInvalidReason); markErr != nil {
 			return fmt.Errorf("worker.Process record schema-invalid failure: %w", markErr)
 		}
 		return fmt.Errorf("worker.Process LLM response invalid for extraction %q: %w", ext.ID, domain.ErrLLMResponseSchemaInvalid)
 	}
 
+	tasks, err := mapToDomainTasks(parsed)
+	if err != nil {
+		// Constructor-side invariants (e.g. ErrInvalidTaskName) catch
+		// parser bugs that slip through the schema gate; treat as a
+		// schema failure so the operator surface is uniform.
+		if markErr := w.markFailed(ctx, ext, schemaInvalidReason); markErr != nil {
+			return fmt.Errorf("worker.Process record domain-invariant failure: %w", markErr)
+		}
+		return fmt.Errorf("worker.Process map LLM tasks for extraction %q: %w", ext.ID, err)
+	}
+
+	if err := w.store.SaveTasks(ctx, ext.ID, tasks); err != nil {
+		return fmt.Errorf("worker.Process persist tasks for extraction %q: %w", ext.ID, err)
+	}
+
+	if err := w.transition(ctx, ext, func(e *domain.Extraction) error {
+		return e.MarkCompleted(tasks)
+	}, ""); err != nil {
+		return fmt.Errorf("worker.Process transition processing->completed: %w", err)
+	}
+
 	return nil
+}
+
+// mapToDomainTasks converts the wire-shape LLM response into a
+// slice of domain.ExtractedTask. NewExtractedTask enforces the
+// trimmed-name 1..255 invariant — if the schema gate let through
+// a name that fails domain validation (whitespace edge case,
+// length overflow), we surface the constructor's error so the
+// failure mode is honest rather than silently dropped.
+func mapToDomainTasks(resp *llmExtractResponse) ([]domain.ExtractedTask, error) {
+	if resp == nil || len(resp.Tasks) == 0 {
+		return nil, nil
+	}
+	tasks := make([]domain.ExtractedTask, 0, len(resp.Tasks))
+	for i, raw := range resp.Tasks {
+		t, err := domain.NewExtractedTask(raw.Name, raw.EstimateHint)
+		if err != nil {
+			return nil, fmt.Errorf("task[%d]: %w", i, err)
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, nil
 }
 
 // schemaInvalidReason is the audit-event reason recorded when the

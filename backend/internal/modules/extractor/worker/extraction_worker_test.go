@@ -279,25 +279,24 @@ func TestProcess_PendingTransitionsToProcessing(t *testing.T) {
 		t.Fatalf("expected nil error after pending->processing transition, got %v", err)
 	}
 
-	if len(store.updateCalls) != 1 {
-		t.Fatalf("expected exactly one UpdateStatus call (the pending->processing transition), got %d", len(store.updateCalls))
+	if len(store.updateCalls) < 1 {
+		t.Fatalf("expected at least one UpdateStatus call (the pending->processing transition), got %d", len(store.updateCalls))
 	}
-	gotExt := store.updateCalls[0]
-	if gotExt.Status != domain.StatusProcessing {
-		t.Fatalf("expected ext.Status=processing after transition, got %s", gotExt.Status)
+	// Subsequent slices may add follow-up transitions on the same
+	// invocation (processing->completed for empty-tasks happy path);
+	// this test scopes to the first transition only.
+	firstEvent := store.updateEvents[0]
+	if firstEvent.FromStatus != domain.StatusPending {
+		t.Fatalf("expected first event.FromStatus=pending, got %s", firstEvent.FromStatus)
 	}
-	gotEvent := store.updateEvents[0]
-	if gotEvent.FromStatus != domain.StatusPending {
-		t.Fatalf("expected event.FromStatus=pending, got %s", gotEvent.FromStatus)
+	if firstEvent.ToStatus != domain.StatusProcessing {
+		t.Fatalf("expected first event.ToStatus=processing, got %s", firstEvent.ToStatus)
 	}
-	if gotEvent.ToStatus != domain.StatusProcessing {
-		t.Fatalf("expected event.ToStatus=processing, got %s", gotEvent.ToStatus)
+	if firstEvent.Actor != "worker" {
+		t.Fatalf("expected first event.Actor=worker, got %q", firstEvent.Actor)
 	}
-	if gotEvent.Actor != "worker" {
-		t.Fatalf("expected event.Actor=worker, got %q", gotEvent.Actor)
-	}
-	if gotEvent.ExtractionID != ext.ID {
-		t.Fatalf("expected event.ExtractionID=%q, got %q", ext.ID, gotEvent.ExtractionID)
+	if firstEvent.ExtractionID != ext.ID {
+		t.Fatalf("expected first event.ExtractionID=%q, got %q", ext.ID, firstEvent.ExtractionID)
 	}
 }
 
