@@ -16,29 +16,42 @@ package llm
 // Providers that do not report usage (Ollama in some configurations) yield
 // ZeroTokenUsage — callers must not assume non-zero values.
 type TokenUsage struct {
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
+	Prompt     int
+	Completion int
+	Total      int
 }
 
-// NewTokenUsage constructs a TokenUsage with consistent total.
+// NewTokenUsage constructs a [TokenUsage] with consistent total. Recomputes
+// Total from inputs to defend against providers that omit or miscount the
+// total field. Negative inputs are clamped to 0 since token counts cannot
+// be negative.
 func NewTokenUsage(prompt, completion int) TokenUsage {
+	if prompt < 0 {
+		prompt = 0
+	}
+	if completion < 0 {
+		completion = 0
+	}
 	return TokenUsage{
-		PromptTokens:     prompt,
-		CompletionTokens: completion,
-		TotalTokens:      prompt + completion,
+		Prompt:     prompt,
+		Completion: completion,
+		Total:      prompt + completion,
 	}
 }
 
 // ZeroTokenUsage is the explicit zero value, used when a provider omits
 // usage data or a call short-circuits before reaching the provider.
+//
+// Prefer `TokenUsage{}` in struct literals; use this factory when an
+// explicit call reads better at the call site or for symmetry with
+// [NewTokenUsage].
 func ZeroTokenUsage() TokenUsage { return TokenUsage{} }
 
 // Add combines two usage records — used to aggregate usage across multiple
 // LLM calls within a single business operation (e.g. classifier + formatter).
 func (u TokenUsage) Add(other TokenUsage) TokenUsage {
 	return NewTokenUsage(
-		u.PromptTokens+other.PromptTokens,
-		u.CompletionTokens+other.CompletionTokens,
+		u.Prompt+other.Prompt,
+		u.Completion+other.Completion,
 	)
 }
