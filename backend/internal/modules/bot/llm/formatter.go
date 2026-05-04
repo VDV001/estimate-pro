@@ -4,66 +4,65 @@
 package llm
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
+	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 )
 
-// Formatter uses a separate LLM call (LLM #2) to rephrase action results
-// in Esti's voice. It NEVER receives user input — only the action result.
+// formatterMaxTokens caps the formatter's output length. 512 is enough
+// for a one-paragraph Esti reply without runaway costs.
+const formatterMaxTokens = 512
+
+// Formatter rephrases raw action results in Esti's voice via LLM #2.
+// It never sees user input — only the action result string and the
+// intent type. HTTP work is fully delegated to a shared/llm.Completer
+// passed at construction; the formatter owns only the prompt assembly
+// and the raw-fallback policy on completer error.
 type Formatter struct {
-	provider domain.LLMProviderType
-	apiKey   string
-	model    string
-	baseURL  string
-	client   *http.Client
+	completer sharedllm.Completer
 }
 
-// bodyPreviewLen is the maximum number of bytes from a non-2xx response body
-// included in slog attrs. Enough to fingerprint the upstream API error
-// envelope without flooding logs.
-const bodyPreviewLen = 200
-
-// bodyPreview returns the first bodyPreviewLen bytes of b as a string.
-func bodyPreview(b []byte) string {
-	if len(b) > bodyPreviewLen {
-		return string(b[:bodyPreviewLen])
-	}
-	return string(b)
+// NewFormatter wraps a shared completer. Passing nil is supported —
+// the Formatter then short-circuits to the raw action result, which
+// is the same fallback applied when the completer errors out. This
+// lets the composition root degrade gracefully when env LLM config
+// is missing or invalid.
+func NewFormatter(completer sharedllm.Completer) *Formatter {
+	return &Formatter{completer: completer}
 }
 
-// NewFormatter creates a Formatter for the given LLM provider.
-func NewFormatter(provider domain.LLMProviderType, apiKey, model, baseURL string) *Formatter {
-	return &Formatter{
-		provider: provider,
-		apiKey:   apiKey,
-		model:    model,
-		baseURL:  baseURL,
-		client:   &http.Client{Timeout: 30 * time.Second},
-	}
-}
-
-// Format rephrases a raw action result in Esti's personality.
+// Format rephrases actionResult in Esti's personality. On any error
+// from the completer (HTTP failure, malformed response, timeout) the
+// raw actionResult is returned with nil error — formatting failure
+// must not break the bot's reply flow.
 func (f *Formatter) Format(ctx context.Context, actionResult string, intentType domain.IntentType) (string, error) {
-	slog.InfoContext(ctx, "Formatter.Format: start", slog.String("provider", string(f.provider)), slog.String("intent", string(intentType)), slog.Int("result_len", len(actionResult)))
+	if f == nil || f.completer == nil {
+		return actionResult, nil
+	}
+
 	start := time.Now()
 	userPrompt := fmt.Sprintf("Действие: %s\nРезультат:\n%s", intentType, actionResult)
+	slog.InfoContext(ctx, "Formatter.Format: start",
+		slog.String("intent", string(intentType)),
+		slog.Int("result_len", len(actionResult)))
 
-	text, err := f.callLLM(ctx, formatterPrompt, userPrompt)
+	text, usage, err := f.completer.Complete(ctx, formatterPrompt, userPrompt, sharedllm.CompletionOptions{MaxTokens: formatterMaxTokens})
 	if err != nil {
-		// Formatting failed — return raw result, don't break the flow.
-		slog.WarnContext(ctx, "Formatter.Format: LLM call failed, returning raw result", slog.String("error", err.Error()), slog.Duration("elapsed", time.Since(start)))
-		return actionResult, nil //nolint:nilerr
+		slog.WarnContext(ctx, "Formatter.Format: completer error, returning raw result",
+			slog.String("intent", string(intentType)),
+			slog.String("error", err.Error()),
+			slog.Duration("elapsed", time.Since(start)))
+		return actionResult, nil //nolint:nilerr // raw fallback preserves UX
 	}
 
-	slog.InfoContext(ctx, "Formatter.Format: done", slog.Int("formatted_len", len(text)), slog.Duration("elapsed", time.Since(start)))
+	slog.InfoContext(ctx, "Formatter.Format: done",
+		slog.Int("formatted_len", len(text)),
+		slog.Int("tokens_total", usage.Total),
+		slog.Duration("elapsed", time.Since(start)))
 	return text, nil
 }
 
@@ -94,158 +93,4 @@ func FormatReaction(intentType domain.IntentType) string {
 // MentionReaction returns a reaction for casual mentions (not commands).
 func MentionReaction() string {
 	return "👋"
-}
-
-func (f *Formatter) callLLM(ctx context.Context, sysPrompt, userMsg string) (string, error) {
-	switch f.provider {
-	case domain.ProviderClaude:
-		return f.callClaude(ctx, sysPrompt, userMsg)
-	case domain.ProviderOpenAI, domain.ProviderGrok:
-		return f.callOpenAICompat(ctx, sysPrompt, userMsg)
-	case domain.ProviderOllama:
-		return f.callOllama(ctx, sysPrompt, userMsg)
-	default:
-		return "", domain.ErrUnsupportedProvider
-	}
-}
-
-func (f *Formatter) callClaude(ctx context.Context, sysPrompt, userMsg string) (string, error) {
-	slog.DebugContext(ctx, "Formatter.callClaude", slog.String("model", f.model))
-	url := "https://api.anthropic.com/v1/messages"
-	body := map[string]any{
-		"model":      f.model,
-		"max_tokens": 512,
-		"system":     sysPrompt,
-		"messages":   []map[string]string{{"role": "user", "content": userMsg}},
-	}
-	data, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("llm.Formatter.callClaude: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", f.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := f.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("llm.Formatter.callClaude: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("llm.Formatter.callClaude: read body: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		slog.WarnContext(ctx, "llm.Formatter.callClaude: non-2xx response", slog.Int("status", resp.StatusCode), slog.String("body_preview", bodyPreview(respBody)))
-		return "", fmt.Errorf("llm.Formatter.callClaude: status %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("llm.Formatter.callClaude: %w", err)
-	}
-	if len(result.Content) == 0 {
-		return "", fmt.Errorf("llm.Formatter.callClaude: empty response")
-	}
-	return result.Content[0].Text, nil
-}
-
-func (f *Formatter) callOpenAICompat(ctx context.Context, sysPrompt, userMsg string) (string, error) {
-	url := "https://api.openai.com/v1/chat/completions"
-	if f.provider == domain.ProviderGrok {
-		url = "https://api.x.ai/v1/chat/completions"
-	}
-	slog.DebugContext(ctx, "Formatter.callOpenAICompat", slog.String("model", f.model), slog.String("provider", string(f.provider)))
-	body := map[string]any{
-		"model":      f.model,
-		"max_tokens": 512,
-		"messages": []map[string]string{
-			{"role": "system", "content": sysPrompt},
-			{"role": "user", "content": userMsg},
-		},
-	}
-	data, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("llm.Formatter.callOpenAI: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+f.apiKey)
-
-	resp, err := f.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("llm.Formatter.callOpenAI: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("llm.Formatter.callOpenAI: read body: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		slog.WarnContext(ctx, "llm.Formatter.callOpenAI: non-2xx response", slog.String("provider", string(f.provider)), slog.Int("status", resp.StatusCode), slog.String("body_preview", bodyPreview(respBody)))
-		return "", fmt.Errorf("llm.Formatter.callOpenAI: status %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("llm.Formatter.callOpenAI: %w", err)
-	}
-	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("llm.Formatter.callOpenAI: empty response")
-	}
-	return result.Choices[0].Message.Content, nil
-}
-
-func (f *Formatter) callOllama(ctx context.Context, sysPrompt, userMsg string) (string, error) {
-	slog.DebugContext(ctx, "Formatter.callOllama", slog.String("model", f.model), slog.String("base_url", f.baseURL))
-	url := f.baseURL + "/api/chat"
-	body := map[string]any{
-		"model":  f.model,
-		"stream": false,
-		"messages": []map[string]string{
-			{"role": "system", "content": sysPrompt},
-			{"role": "user", "content": userMsg},
-		},
-	}
-	data, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("llm.Formatter.callOllama: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := f.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("llm.Formatter.callOllama: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("llm.Formatter.callOllama: read body: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		slog.WarnContext(ctx, "llm.Formatter.callOllama: non-2xx response", slog.Int("status", resp.StatusCode), slog.String("body_preview", bodyPreview(respBody)))
-		return "", fmt.Errorf("llm.Formatter.callOllama: status %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("llm.Formatter.callOllama: %w", err)
-	}
-	return result.Message.Content, nil
 }

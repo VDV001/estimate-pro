@@ -17,6 +17,7 @@ import (
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/handler/messages"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/llm"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/telegram"
+	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 )
 
 // EnvLLMConfig holds LLM configuration from environment variables (fallback).
@@ -81,8 +82,30 @@ func New(
 		llmFactory:   llmFactory,
 		envLLM:       envLLM,
 		botUsername:  botUsername,
-		formatter:    llm.NewFormatter(domain.LLMProviderType(envLLM.Provider), envLLM.APIKey, envLLM.Model, envLLM.BaseURL),
+		formatter:    llm.NewFormatter(buildEnvFormatterCompleter(envLLM)),
 	}
+}
+
+// buildEnvFormatterCompleter constructs a shared/llm.Completer from the
+// env LLM config for use by the personality formatter (LLM #2). When
+// envLLM is missing or invalid (no provider, bad key) it returns nil —
+// Formatter handles nil by falling back to the raw action result.
+//
+// Formatter intentionally uses env config (not the per-user config) so
+// Esti's voice is consistent regardless of which user-scoped parser
+// resolves the intent.
+func buildEnvFormatterCompleter(envLLM EnvLLMConfig) sharedllm.Completer {
+	if envLLM.Provider == "" {
+		return nil
+	}
+	parser, err := sharedllm.NewParser(sharedllm.LLMProviderType(envLLM.Provider), envLLM.APIKey, envLLM.Model, envLLM.BaseURL)
+	if err != nil {
+		slog.Warn("BotUsecase.buildEnvFormatterCompleter: env LLM parser unavailable, formatter will fall back to raw output",
+			slog.String("provider", envLLM.Provider),
+			slog.String("error", err.Error()))
+		return nil
+	}
+	return parser
 }
 
 // ProcessMessage handles an incoming Telegram message update.
