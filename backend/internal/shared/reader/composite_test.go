@@ -1,6 +1,7 @@
 package reader_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"testing"
@@ -79,6 +80,21 @@ func TestComposite_Parse(t *testing.T) {
 				t.Error("Parse returned empty text, want non-empty")
 			}
 		})
+	}
+}
+
+func TestComposite_Parse_RespectsCancelledContext(t *testing.T) {
+	hello, err := os.ReadFile("testdata/hello.pdf")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	c := reader.NewComposite(0, reader.NewPDFReader(), reader.NewDOCXReader())
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err := c.Parse(ctx, "hello.pdf", hello); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Parse err=%v, want errors.Is context.Canceled", err)
 	}
 }
 
