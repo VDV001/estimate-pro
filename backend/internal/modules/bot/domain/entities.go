@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 )
 
 // ErrNoPassword indicates the user has no password (OAuth account).
@@ -90,40 +92,26 @@ type BotUserLink struct {
 	LinkedAt         time.Time `json:"linked_at"`
 }
 
-// LLMProviderType represents a supported LLM provider.
-type LLMProviderType string
+// LLMProviderType is the canonical provider identifier. Aliased to
+// [sharedllm.LLMProviderType] so the bot module shares one source of truth
+// with future LLM consumers (extractor, etc.).
+type LLMProviderType = sharedllm.LLMProviderType
 
+// Provider constants alias the shared values — bot callers continue to
+// reference domain.ProviderClaude etc. without knowing the canonical
+// origin. New consumers should import sharedllm directly.
 const (
-	ProviderClaude LLMProviderType = "claude"
-	ProviderOpenAI LLMProviderType = "openai"
-	ProviderGrok   LLMProviderType = "grok"
-	ProviderOllama LLMProviderType = "ollama"
+	ProviderClaude = sharedllm.ProviderClaude
+	ProviderOpenAI = sharedllm.ProviderOpenAI
+	ProviderGrok   = sharedllm.ProviderGrok
+	ProviderOllama = sharedllm.ProviderOllama
 )
 
-// IsValid returns true if the provider type is one of the known providers.
-func (p LLMProviderType) IsValid() bool {
-	switch p {
-	case ProviderClaude,
-		ProviderOpenAI,
-		ProviderGrok,
-		ProviderOllama:
-		return true
-	default:
-		return false
-	}
-}
-
-// LLMConfig represents configuration for an LLM provider.
-type LLMConfig struct {
-	ID        string          `json:"id"`
-	UserID    string          `json:"user_id,omitempty"`
-	Provider  LLMProviderType `json:"provider"`
-	APIKey    string          `json:"-"`
-	Model     string          `json:"model"`
-	BaseURL   string          `json:"base_url,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-}
+// LLMConfig is the persisted provider configuration. Aliased to
+// [sharedllm.LLMConfig] — the bot owns the storage shape historically but
+// the data is provider-generic. Validation invariants live in
+// [sharedllm.NewLLMConfig].
+type LLMConfig = sharedllm.LLMConfig
 
 // ProjectSummary is a lightweight project representation for bot responses.
 type ProjectSummary struct {
