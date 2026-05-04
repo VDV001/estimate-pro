@@ -14,7 +14,9 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/extractor/domain"
@@ -153,7 +155,7 @@ func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) err
 	}
 
 	systemPrompt, userPrompt := buildLLMPrompt(text)
-	_, _, err = w.llm.Complete(ctx, systemPrompt, userPrompt, sharedllm.CompletionOptions{
+	rawResponse, _, err := w.llm.Complete(ctx, systemPrompt, userPrompt, sharedllm.CompletionOptions{
 		MaxTokens: llmMaxTokens,
 		JSONMode:  true,
 	})
@@ -161,7 +163,58 @@ func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) err
 		return fmt.Errorf("worker.Process LLM dispatch for extraction %q: %w", ext.ID, err)
 	}
 
+	if _, err := parseLLMResponse(rawResponse); err != nil {
+		if markErr := w.markFailed(ctx, ext, schemaInvalidReason); markErr != nil {
+			return fmt.Errorf("worker.Process record schema-invalid failure: %w", markErr)
+		}
+		return fmt.Errorf("worker.Process LLM response invalid for extraction %q: %w", ext.ID, domain.ErrLLMResponseSchemaInvalid)
+	}
+
 	return nil
+}
+
+// schemaInvalidReason is the audit-event reason recorded when the
+// LLM response fails the schema gate. Operators reading the
+// extraction_events row see a uniform reason regardless of the
+// specific failure mode (non-JSON / wrong shape / missing field)
+// — drilling down to the exact mode goes through structured
+// logging once observability lands.
+const schemaInvalidReason = "LLM response failed schema validation"
+
+// llmExtractResponse is the on-the-wire shape of the LLM's reply.
+// Adapters call json.Unmarshal into this struct; the worker then
+// validates per-task invariants before mapping to domain.ExtractedTask.
+// Keeping the JSON layer separate from the domain VO lets us evolve
+// the wire format (e.g. add a confidence field) without touching
+// domain invariants.
+type llmExtractResponse struct {
+	Tasks []llmExtractedTask `json:"tasks"`
+}
+
+type llmExtractedTask struct {
+	Name         string `json:"name"`
+	EstimateHint string `json:"estimate_hint"`
+}
+
+// parseLLMResponse decodes the LLM's reply and validates the
+// schema. Returns ErrLLMResponseSchemaInvalid for any of: non-JSON
+// input, missing/wrong-typed 'tasks' field, item without 'name',
+// item with empty/whitespace 'name'. The "tasks": [] case is
+// considered valid (extraction document yielded zero tasks) — the
+// caller decides whether that is a happy path or a soft failure.
+func parseLLMResponse(raw string) (*llmExtractResponse, error) {
+	var resp llmExtractResponse
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&resp); err != nil {
+		return nil, fmt.Errorf("decode JSON: %w", domain.ErrLLMResponseSchemaInvalid)
+	}
+	for i, task := range resp.Tasks {
+		if strings.TrimSpace(task.Name) == "" {
+			return nil, fmt.Errorf("task[%d].name is empty: %w", i, domain.ErrLLMResponseSchemaInvalid)
+		}
+	}
+	return &resp, nil
 }
 
 // promptInjectionReason is the audit-event reason recorded when the

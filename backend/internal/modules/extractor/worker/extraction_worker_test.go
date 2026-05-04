@@ -266,7 +266,10 @@ func TestProcess_PendingTransitionsToProcessing(t *testing.T) {
 	source := &capturingSource{respData: []byte{}, respName: "doc.pdf"}
 	reader := &capturingReader{respText: ""}
 	security := &capturingSecurity{verdict: false}
-	llm := &capturingCompleter{}
+	// Schema-valid empty response so the LLM-parse gate accepts and
+	// the body completes without raising ErrLLMResponseSchemaInvalid;
+	// this test is scoped to the transition assertion.
+	llm := &capturingCompleter{respText: `{"tasks":[]}`}
 
 	w := worker.NewExtractionWorker(store, source, reader, llm, security)
 
@@ -313,11 +316,11 @@ func TestProcess_AfterTransition_FetchesAndParsesDocument(t *testing.T) {
 	source := &capturingSource{respData: []byte("PDF-bytes"), respName: "spec.pdf"}
 	reader := &capturingReader{respText: "extracted plain text"}
 	// Security + LLM must be reachable here because Process now
-	// calls them after Parse; verdict=false keeps the body on the
-	// happy path so this test still scopes only to download + parse
-	// assertions.
+	// calls them after Parse; verdict=false + schema-valid empty
+	// response keep the body on the happy path so this test still
+	// scopes only to download + parse assertions.
 	security := &capturingSecurity{verdict: false}
-	llm := &capturingCompleter{}
+	llm := &capturingCompleter{respText: `{"tasks":[]}`}
 
 	w := worker.NewExtractionWorker(store, source, reader, llm, security)
 
