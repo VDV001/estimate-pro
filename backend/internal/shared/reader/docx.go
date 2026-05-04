@@ -57,7 +57,7 @@ func readDocxBody(f *zip.File) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	var doc docxBody
 	if err := xml.NewDecoder(rc).Decode(&doc); err != nil {
