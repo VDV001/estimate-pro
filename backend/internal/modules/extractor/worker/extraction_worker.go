@@ -15,6 +15,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/extractor/domain"
 )
@@ -72,6 +73,13 @@ func NewExtractionWorker(store ExtractionStore, source DocumentSource, reader Te
 // supplied by the HTTP handler.
 const workerActor = "worker"
 
+// readerTimeout caps the time spent inside the document reader
+// composite — large XLSX or PDF files are the realistic worst-case
+// (>1M cells / encrypted layers). The cap is per-document, not
+// per-job; the surrounding river job timeout (5min) covers the
+// other stages. ADR-016 §timeouts.
+const readerTimeout = 10 * time.Second
+
 func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) error {
 	ext, err := w.store.GetByID(ctx, args.ExtractionID)
 	if err != nil {
@@ -83,6 +91,19 @@ func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) err
 	if err := w.transition(ctx, ext, (*domain.Extraction).MarkProcessing, ""); err != nil {
 		return fmt.Errorf("worker.Process transition pending->processing: %w", err)
 	}
+
+	data, filename, err := w.source.Fetch(ctx, ext.DocumentVersionID)
+	if err != nil {
+		return fmt.Errorf("worker.Process fetch document %q: %w", ext.DocumentVersionID, err)
+	}
+
+	parseCtx, cancel := context.WithTimeout(ctx, readerTimeout)
+	defer cancel()
+	_, err = w.reader.Parse(parseCtx, filename, data)
+	if err != nil {
+		return fmt.Errorf("worker.Process parse document %q: %w", filename, err)
+	}
+
 	return nil
 }
 

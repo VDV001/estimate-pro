@@ -222,8 +222,14 @@ func TestProcess_StatusNotPending_SkipsIdempotently(t *testing.T) {
 func TestProcess_PendingTransitionsToProcessing(t *testing.T) {
 	ext := pendingExtraction(t)
 	store := &fakeStore{got: ext}
+	// Source + Reader are inert capturers because subsequent Process
+	// stages (download / parse) now run after the transition; this
+	// test only asserts on the transition itself, the dedicated
+	// Fetch/Parse test owns those assertions.
+	source := &capturingSource{respData: []byte{}, respName: "doc.pdf"}
+	reader := &capturingReader{respText: ""}
 
-	w := worker.NewExtractionWorker(store, panickingSource{}, panickingReader{}, panickingCompleter{}, panickingSecurity{})
+	w := worker.NewExtractionWorker(store, source, reader, panickingCompleter{}, panickingSecurity{})
 
 	// Process must not return an error after the transition lands;
 	// later RED pairs will tighten this to "and Fetch was called".
