@@ -4,9 +4,12 @@
 package llm_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -145,5 +148,52 @@ func TestBotIntentParser_RejectsInvalidJSONFromInner(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "BotIntentParser") {
 		t.Errorf("err = %q, want wrap mentioning BotIntentParser", err.Error())
+	}
+}
+
+// TestBotIntentParser_LogsTokenUsage backfills coverage for the
+// observability wire: when the inner shared parser reports a non-zero
+// TokenUsage, the facade must surface tokens_total in its slog record so
+// operators can correlate cost against intent.
+//
+// Not parallel — swaps slog.Default and restores via t.Cleanup. Other
+// tests in this package don't race on the default logger because they
+// don't assert log shape.
+func TestBotIntentParser_LogsTokenUsage(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	fake := &fakeSharedIntentParser{
+		rawJSON: `{"type":"help","params":{},"confidence":0.9}`,
+		usage:   sharedllm.NewTokenUsage(120, 30),
+	}
+	facade := botllm.NewBotIntentParser(fake)
+
+	if _, err := facade.ParseIntent(context.Background(), "что умеешь?", nil); err != nil {
+		t.Fatalf("ParseIntent err = %v, want nil", err)
+	}
+
+	type record struct {
+		Msg         string `json:"msg"`
+		TokensTotal int    `json:"tokens_total"`
+	}
+	var found bool
+	for line := range bytes.SplitSeq(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
+		var r record
+		if err := json.Unmarshal(line, &r); err != nil {
+			t.Fatalf("decode log line %q: %v", line, err)
+		}
+		if r.Msg == "BotIntentParser.ParseIntent: raw output" {
+			if r.TokensTotal != 150 {
+				t.Errorf("tokens_total = %d, want 150 (Prompt 120 + Completion 30)", r.TokensTotal)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected slog record with msg %q, got logs:\n%s",
+			"BotIntentParser.ParseIntent: raw output", buf.String())
 	}
 }
