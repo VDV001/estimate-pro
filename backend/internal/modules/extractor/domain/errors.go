@@ -20,4 +20,5 @@ var (
 	ErrAlreadyCompleted        = errors.New("extractor: extraction already completed")
 	ErrMissingExtraction       = errors.New("extractor: extraction id is required")
 	ErrInvalidActor            = errors.New("extractor: actor is required")
+	ErrExtractionNotFound      = errors.New("extractor: extraction not found")
 )
