@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,6 +22,15 @@ type Config struct {
 	TelegramBot     TelegramBotConfig
 	LLM             LLMDefaultConfig
 	FrontendBaseURL string
+	Extractor       ExtractorConfig
+}
+
+// ExtractorConfig gates the document-pipeline module (PR-B series).
+// Enabled defaults to false so the feature stays dormant on a fresh
+// deploy until ops explicitly opts in via FEATURE_DOCUMENT_PIPELINE_ENABLED.
+type ExtractorConfig struct {
+	Enabled  bool
+	MaxBytes int64
 }
 
 type S3Config struct {
@@ -107,7 +117,22 @@ func Load() Config {
 			Model:    cmp.Or(os.Getenv("LLM_MODEL"), "claude-sonnet-4-20250514"),
 			BaseURL:  os.Getenv("LLM_BASE_URL"),
 		},
+		Extractor: ExtractorConfig{
+			Enabled:  os.Getenv("FEATURE_DOCUMENT_PIPELINE_ENABLED") == "true",
+			MaxBytes: parseInt64(os.Getenv("EXTRACTOR_MAX_DOCUMENT_BYTES"), 50<<20),
+		},
 	}
+}
+
+func parseInt64(s string, fallback int64) int64 {
+	if s == "" {
+		return fallback
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return v
 }
 
 func parseOrigins(s string) []string {
