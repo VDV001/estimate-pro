@@ -18,4 +18,6 @@ var (
 	ErrMissingDocumentVersion  = errors.New("extractor: document version id is required")
 	ErrInvalidStatusTransition = errors.New("extractor: invalid status transition")
 	ErrAlreadyCompleted        = errors.New("extractor: extraction already completed")
+	ErrMissingExtraction       = errors.New("extractor: extraction id is required")
+	ErrInvalidActor            = errors.New("extractor: actor is required")
 )
