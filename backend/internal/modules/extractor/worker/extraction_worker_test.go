@@ -6,6 +6,7 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/extractor/domain"
@@ -94,6 +95,27 @@ type panickingCompleter struct{}
 
 func (panickingCompleter) Complete(_ context.Context, _, _ string, _ sharedllm.CompletionOptions) (string, sharedllm.TokenUsage, error) {
 	panic("worker: Completer.Complete not expected to be called in this test")
+}
+
+// capturingCompleter records every Complete call and returns a
+// canned response. Used by tests that drive the worker into the
+// LLM stage. Default zero values produce empty response — Pair 5
+// (schema validation) tightens the assertions.
+type capturingCompleter struct {
+	calls    []capturingCompleterCall
+	respText string
+	respErr  error
+}
+
+type capturingCompleterCall struct {
+	system string
+	user   string
+	opts   sharedllm.CompletionOptions
+}
+
+func (c *capturingCompleter) Complete(_ context.Context, system, user string, opts sharedllm.CompletionOptions) (string, sharedllm.TokenUsage, error) {
+	c.calls = append(c.calls, capturingCompleterCall{system: system, user: user, opts: opts})
+	return c.respText, sharedllm.TokenUsage{}, c.respErr
 }
 
 type panickingSecurity struct{}
@@ -356,5 +378,49 @@ func TestProcess_PromptInjection_MarksFailedAndReturnsSentinel(t *testing.T) {
 	}
 	if failedEvent.ErrorMessage == "" {
 		t.Fatalf("expected event.ErrorMessage to record the prompt-injection reason, got empty")
+	}
+}
+
+// TestProcess_AfterSecurityClean_DispatchesToLLM pins the next
+// happy-path slice: when the security guard returns a clean
+// verdict, the worker hands the extracted text to
+// Completer.Complete. Assertions are scoped to call shape and
+// option flags — exact prompt wording is allowed to evolve, but
+// the extracted text must reach the LLM and JSONMode must be
+// enabled (the response will be JSON-parsed by the next pair).
+//
+// Schema validation, SaveTasks, and MarkCompleted are not yet
+// implemented — Pair 5 + Pair 6 own those slices.
+func TestProcess_AfterSecurityClean_DispatchesToLLM(t *testing.T) {
+	const extractedText = "Build a login screen with OAuth.\nAdd password reset flow."
+
+	ext := pendingExtraction(t)
+	store := &fakeStore{got: ext}
+	source := &capturingSource{respData: []byte("PDF-bytes"), respName: "spec.pdf"}
+	reader := &capturingReader{respText: extractedText}
+	security := &capturingSecurity{verdict: false}
+	llm := &capturingCompleter{respText: `{"tasks":[]}`}
+
+	w := worker.NewExtractionWorker(store, source, reader, llm, security)
+
+	if err := w.Process(context.Background(), worker.ExtractionArgs{ExtractionID: ext.ID}); err != nil {
+		t.Fatalf("expected nil error after LLM dispatch slice, got %v", err)
+	}
+
+	if got := len(llm.calls); got != 1 {
+		t.Fatalf("expected Completer.Complete called once, got %d", got)
+	}
+	call := llm.calls[0]
+	if call.system == "" {
+		t.Fatalf("expected non-empty system prompt to anchor JSON contract")
+	}
+	if !strings.Contains(call.user, extractedText) {
+		t.Fatalf("expected user prompt to embed extracted text, got %q", call.user)
+	}
+	if !call.opts.JSONMode {
+		t.Fatalf("expected CompletionOptions.JSONMode=true so adapters opt into structured-output, got false")
+	}
+	if call.opts.MaxTokens <= 0 {
+		t.Fatalf("expected CompletionOptions.MaxTokens to be set (>0), got %d", call.opts.MaxTokens)
 	}
 }
