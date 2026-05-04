@@ -32,10 +32,13 @@ func (p LLMProviderType) IsValid() bool {
 // Sentinel errors. Callers must use errors.Is — direct string comparison
 // is forbidden by the project's domain-error convention.
 var (
-	ErrInvalidProvider = errors.New("llm: invalid provider type")
-	ErrEmptyModel      = errors.New("llm: model must not be empty")
-	ErrEmptyAPIKey     = errors.New("llm: api_key must not be empty for non-local providers")
-	ErrConfigNotFound  = errors.New("llm: config not found")
+	ErrInvalidProvider    = errors.New("llm: invalid provider type")
+	ErrEmptyModel         = errors.New("llm: model must not be empty")
+	ErrEmptyAPIKey        = errors.New("llm: api_key must not be empty for non-local providers")
+	ErrConfigNotFound     = errors.New("llm: config not found")
+	ErrLLMHTTP            = errors.New("llm: provider HTTP call failed")
+	ErrLLMResponseInvalid = errors.New("llm: provider response not parseable")
+	ErrLLMTimeout         = errors.New("llm: provider request timed out")
 )
 
 // LLMConfig is the persisted configuration for one LLM provider, scoped
