@@ -110,6 +110,14 @@ func (u *Extractor) GetExtraction(ctx context.Context, id string) (*domain.Extra
 	return ext, events, nil
 }
 
+// ListByProject forwards to the repository — a thin pass-through is
+// acceptable because the only logic the handler needs is "give me
+// every extraction for this project, newest first" and that maps
+// 1:1 onto the persistence query.
+func (u *Extractor) ListByProject(ctx context.Context, projectID string) ([]*domain.Extraction, error) {
+	return u.repo.ListByProject(ctx, projectID)
+}
+
 // transition centralises the get → mutate → audit → save pattern
 // shared by Cancel and Retry. The mutate argument is a method
 // expression on *Extraction so each caller passes the appropriate
