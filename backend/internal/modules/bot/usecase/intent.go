@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/handler/messages"
 )
 
 // projectListLimit caps how many projects we fetch via ProjectManager.ListByUser
@@ -91,16 +92,16 @@ func (e *IntentExecutor) listProjects(ctx context.Context, userID string) (strin
 	slog.DebugContext(ctx, "IntentExecutor.listProjects: found", slog.Int("total", total))
 
 	if total == 0 {
-		return "У вас пока нет проектов. Создайте первый с помощью команды «создай проект».", nil, nil
+		return messages.NoProjectsCreateFirst, nil, nil
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("📋 Ваши проекты (%d):\n\n", total))
+	b.WriteString(messages.ProjectListHeader(total))
 	for i, p := range projects {
-		emoji := statusEmoji(p.Status)
+		emoji := messages.StatusEmoji(p.Status)
 		b.WriteString(fmt.Sprintf("%d. %s %s", i+1, emoji, p.Name))
 		if p.MemberCount > 0 {
-			b.WriteString(fmt.Sprintf(" · %d уч.", p.MemberCount))
+			b.WriteString(messages.ProjectMemberSuffix(p.MemberCount))
 		}
 		b.WriteByte('\n')
 	}
@@ -112,33 +113,30 @@ func (e *IntentExecutor) getProjectStatus(ctx context.Context, intent *domain.In
 	projectName := intent.Params["project_name"]
 	slog.DebugContext(ctx, "IntentExecutor.getProjectStatus", slog.String("project_name", projectName))
 	if projectName == "" {
-		return "Укажите название проекта, чтобы получить его статус.", nil, nil
+		return messages.AskProjectForStatus, nil, nil
 	}
 
 	p, err := e.findProjectByName(ctx, userID, projectName)
 	if err != nil {
 		if errors.Is(err, domain.ErrProjectNotFound) {
-			return projectNotFoundMsg(projectName), nil, nil
+			return messages.ProjectNotFound(projectName), nil, nil
 		}
 		return "", nil, err
 	}
-	emoji := statusEmoji(p.Status)
-	return fmt.Sprintf("%s *%s*\nСтатус: %s\nУчастников: %d", emoji, p.Name, p.Status, p.MemberCount), nil, nil
+	emoji := messages.StatusEmoji(p.Status)
+	return messages.ProjectStatusDetails(emoji, p.Name, p.Status, p.MemberCount), nil, nil
 }
 
 func (e *IntentExecutor) createProject(intent *domain.Intent) (string, [][]domain.InlineKeyboardButton, error) {
 	name := intent.Params["name"]
 	description := intent.Params["description"]
 
-	msg := fmt.Sprintf("Создать проект «%s»?", name)
-	if description != "" {
-		msg += fmt.Sprintf("\nОписание: %s", description)
-	}
+	msg := messages.ConfirmCreateProject(name, description)
 
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
-			{Text: "Подтвердить", CallbackData: domain.ConfirmCallback(domain.IntentCreateProject)},
-			{Text: "Отмена", CallbackData: domain.CancelCallback()},
+			{Text: messages.BtnConfirm, CallbackData: domain.ConfirmCallback(domain.IntentCreateProject)},
+			{Text: messages.BtnCancel, CallbackData: domain.CancelCallback()},
 		},
 	}
 
@@ -148,38 +146,29 @@ func (e *IntentExecutor) createProject(intent *domain.Intent) (string, [][]domai
 func (e *IntentExecutor) updateProject(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
 	projectName := intent.Params["project_name"]
 	if projectName == "" {
-		return "Укажите проект, который нужно обновить.", nil, nil
+		return messages.AskProjectToUpdate, nil, nil
 	}
 	newName := intent.Params["new_name"]
 	description := intent.Params["description"]
 	if newName == "" && description == "" {
-		return "Укажите что обновить: новое имя проекта или описание.", nil, nil
+		return messages.AskWhatToUpdate, nil, nil
 	}
 
 	p, err := e.findProjectByName(ctx, userID, projectName)
 	if err != nil {
 		if errors.Is(err, domain.ErrProjectNotFound) {
-			return projectNotFoundMsg(projectName), nil, nil
+			return messages.ProjectNotFound(projectName), nil, nil
 		}
 		return "", nil, err
 	}
 
-	var msg strings.Builder
-	fmt.Fprintf(&msg, "Обновить проект «%s»?\n", p.Name)
-	if newName != "" {
-		fmt.Fprintf(&msg, "Новое имя: %s\n", newName)
-	}
-	if description != "" {
-		fmt.Fprintf(&msg, "Описание: %s\n", description)
-	}
-
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
-			{Text: "Подтвердить", CallbackData: domain.ConfirmCallback(domain.IntentUpdateProject)},
-			{Text: "Отмена", CallbackData: domain.CancelCallback()},
+			{Text: messages.BtnConfirm, CallbackData: domain.ConfirmCallback(domain.IntentUpdateProject)},
+			{Text: messages.BtnCancel, CallbackData: domain.CancelCallback()},
 		},
 	}
-	return msg.String(), keyboard, nil
+	return messages.ConfirmUpdateProject(p.Name, newName, description), keyboard, nil
 }
 
 func (e *IntentExecutor) addMember(intent *domain.Intent) (string, [][]domain.InlineKeyboardButton, error) {
@@ -187,10 +176,10 @@ func (e *IntentExecutor) addMember(intent *domain.Intent) (string, [][]domain.In
 	email := intent.Params["email"]
 
 	if projectName == "" || email == "" {
-		return "Укажите название проекта и email участника.", nil, nil
+		return messages.AskProjectAndEmail, nil, nil
 	}
 
-	msg := fmt.Sprintf("Добавить %s в проект «%s». Выберите роль:", email, projectName)
+	msg := messages.AskMemberRole(email, projectName)
 
 	// SelectCallback emits the select-role form that ProcessCallback's
 	// strings.HasPrefix(action, CallbackPrefixSelect) branch advances the
@@ -215,15 +204,15 @@ func (e *IntentExecutor) removeMember(intent *domain.Intent) (string, [][]domain
 	userName := intent.Params["user_name"]
 
 	if projectName == "" || userName == "" {
-		return "Укажите название проекта и имя участника для удаления.", nil, nil
+		return messages.AskProjectAndUserName, nil, nil
 	}
 
-	msg := fmt.Sprintf("Удалить %s из проекта «%s»?", userName, projectName)
+	msg := messages.ConfirmRemoveMember(userName, projectName)
 
 	keyboard := [][]domain.InlineKeyboardButton{
 		{
-			{Text: "Подтвердить", CallbackData: domain.ConfirmCallback(domain.IntentRemoveMember)},
-			{Text: "Отмена", CallbackData: domain.CancelCallback()},
+			{Text: messages.BtnConfirm, CallbackData: domain.ConfirmCallback(domain.IntentRemoveMember)},
+			{Text: messages.BtnCancel, CallbackData: domain.CancelCallback()},
 		},
 	}
 
@@ -233,27 +222,27 @@ func (e *IntentExecutor) removeMember(intent *domain.Intent) (string, [][]domain
 func (e *IntentExecutor) submitEstimation(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
 	projectName := intent.Params["project_name"]
 	if projectName == "" {
-		return "Укажите проект для отправки оценки.", nil, nil
+		return messages.AskProjectForEstimation, nil, nil
 	}
 	taskName := intent.Params["task_name"]
 	if taskName == "" {
-		return "Укажите задачу для оценки.", nil, nil
+		return messages.AskTaskForEstimation, nil, nil
 	}
 	minStr := intent.Params["min_hours"]
 	likelyStr := intent.Params["likely_hours"]
 	maxStr := intent.Params["max_hours"]
 	if minStr == "" || likelyStr == "" || maxStr == "" {
-		return "Укажите минимальные, ожидаемые и максимальные часы (min, likely, max).", nil, nil
+		return messages.AskHours, nil, nil
 	}
 	minH, likelyH, maxH, ok := parseHours(minStr, likelyStr, maxStr)
 	if !ok {
-		return "Часы должны быть числами (например 8 или 12.5).", nil, nil
+		return messages.ErrHoursNotNumbers, nil, nil
 	}
 
 	p, err := e.findProjectByName(ctx, userID, projectName)
 	if err != nil {
 		if errors.Is(err, domain.ErrProjectNotFound) {
-			return projectNotFoundMsg(projectName), nil, nil
+			return messages.ProjectNotFound(projectName), nil, nil
 		}
 		return "", nil, err
 	}
@@ -263,30 +252,29 @@ func (e *IntentExecutor) submitEstimation(ctx context.Context, intent *domain.In
 	// so we map back to UX message here without duplicating the invariant.
 	if err := e.estimations.SubmitItem(ctx, p.ID, userID, taskName, minH, likelyH, maxH); err != nil {
 		if errors.Is(err, domain.ErrInvalidEstimationHours) {
-			return "Часы должны удовлетворять условию min ≤ likely ≤ max и быть неотрицательными.", nil, nil
+			return messages.ErrHoursInvariant, nil, nil
 		}
 		slog.ErrorContext(ctx, "IntentExecutor.submitEstimation: SubmitItem failed", slog.String("project_id", p.ID), slog.String("task", taskName), slog.String("error", err.Error()))
 		return "", nil, fmt.Errorf("IntentExecutor.submitEstimation: %w", err)
 	}
 
-	return fmt.Sprintf("Оценка для задачи «%s» в проекте «%s» отправлена! ✅\n• min: %vч\n• likely: %vч\n• max: %vч",
-		taskName, p.Name, minH, likelyH, maxH), nil, nil
+	return messages.EstimationSubmitted(taskName, p.Name, minH, likelyH, maxH), nil, nil
 }
 
 func (e *IntentExecutor) requestEstimation(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
 	projectName := intent.Params["project_name"]
 	if projectName == "" {
-		return "Укажите проект, для которого нужна оценка.", nil, nil
+		return messages.AskProjectForRequestEstimation, nil, nil
 	}
 	taskName := intent.Params["task_name"]
 	if taskName == "" {
-		return "Укажите задачу, для которой нужна оценка.", nil, nil
+		return messages.AskTaskForRequestEstimation, nil, nil
 	}
 
 	p, err := e.findProjectByName(ctx, userID, projectName)
 	if err != nil {
 		if errors.Is(err, domain.ErrProjectNotFound) {
-			return projectNotFoundMsg(projectName), nil, nil
+			return messages.ProjectNotFound(projectName), nil, nil
 		}
 		return "", nil, err
 	}
@@ -296,7 +284,7 @@ func (e *IntentExecutor) requestEstimation(ctx context.Context, intent *domain.I
 		return "", nil, fmt.Errorf("IntentExecutor.requestEstimation: %w", err)
 	}
 
-	return fmt.Sprintf("Запрос оценки задачи «%s» в проекте «%s» отправлен команде. 📨", taskName, p.Name), nil, nil
+	return messages.EstimationRequested(taskName, p.Name), nil, nil
 }
 
 // uploadDocumentRequest handles the text version of the upload_document intent
@@ -309,13 +297,13 @@ func (e *IntentExecutor) requestEstimation(ctx context.Context, intent *domain.I
 func (e *IntentExecutor) uploadDocumentRequest(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
 	projectName := intent.Params["project_name"]
 	if projectName == "" {
-		return "Укажите проект, в который нужно загрузить документ.", nil, nil
+		return messages.AskProjectForUpload, nil, nil
 	}
 
 	p, err := e.findProjectByName(ctx, userID, projectName)
 	if err != nil {
 		if errors.Is(err, domain.ErrProjectNotFound) {
-			return projectNotFoundMsg(projectName), nil, nil
+			return messages.ProjectNotFound(projectName), nil, nil
 		}
 		return "", nil, err
 	}
@@ -328,7 +316,7 @@ func (e *IntentExecutor) uploadDocumentRequest(ctx context.Context, intent *doma
 	}
 	intent.Params["project_id"] = p.ID
 
-	return fmt.Sprintf("Жду файл для проекта «%s» 📎\nПоддерживаемые форматы: PDF, DOCX, XLSX, MD, TXT, CSV (до 50MB).", p.Name), nil, nil
+	return messages.WaitingForFile(p.Name), nil, nil
 }
 
 func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
@@ -336,9 +324,9 @@ func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent,
 	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrProjectNotIdentified):
-			return "Укажите проект, чтобы просмотреть участников.", nil, nil
+			return messages.AskProjectForMembers, nil, nil
 		case errors.Is(err, domain.ErrProjectNotFound):
-			return projectNotFoundMsg(intent.Params["project_name"]), nil, nil
+			return messages.ProjectNotFound(intent.Params["project_name"]), nil, nil
 		default:
 			return "", nil, err
 		}
@@ -352,13 +340,13 @@ func (e *IntentExecutor) listMembers(ctx context.Context, intent *domain.Intent,
 	}
 
 	if len(members) == 0 {
-		return "В проекте пока нет участников.", nil, nil
+		return messages.NoMembersInProject, nil, nil
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("👥 Участники (%d):\n\n", len(members)))
+	b.WriteString(messages.MembersListHeader(len(members)))
 	for _, m := range members {
-		b.WriteString(fmt.Sprintf("• %s — [%s]\n", m.UserName, m.Role))
+		b.WriteString(messages.MemberLine(m.UserName, m.Role))
 	}
 
 	return b.String(), nil, nil
@@ -369,9 +357,9 @@ func (e *IntentExecutor) getAggregated(ctx context.Context, intent *domain.Inten
 	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrProjectNotIdentified):
-			return "Укажите проект, чтобы получить агрегированную оценку.", nil, nil
+			return messages.AskProjectForAggregated, nil, nil
 		case errors.Is(err, domain.ErrProjectNotFound):
-			return projectNotFoundMsg(intent.Params["project_name"]), nil, nil
+			return messages.ProjectNotFound(intent.Params["project_name"]), nil, nil
 		default:
 			return "", nil, err
 		}
@@ -427,19 +415,6 @@ func (e *IntentExecutor) findProjectByName(ctx context.Context, userID, name str
 	return nil, fmt.Errorf("%w: %s", domain.ErrProjectNotFound, name)
 }
 
-// projectNotFoundMsg returns the canonical user-facing message shown when a
-// project_name does not match any of the user's projects.
-func projectNotFoundMsg(name string) string {
-	return fmt.Sprintf("Проект «%s» не найден. Используйте «мои проекты» для просмотра списка.", name)
-}
-
-// memberNotFoundMsg returns the canonical user-facing message shown when a
-// user_name does not match any member of the resolved project. Symmetric
-// with projectNotFoundMsg.
-func memberNotFoundMsg(name string) string {
-	return fmt.Sprintf("Участник «%s» не найден. Используйте «участники <проект>» для просмотра списка.", name)
-}
-
 // findMemberByName looks up a member of the given project by user name
 // (case-insensitive). Returns domain.ErrMemberNotFound if no match.
 // Symmetric with findProjectByName.
@@ -471,38 +446,24 @@ func parseHours(minStr, likelyStr, maxStr string) (minH, likelyH, maxH float64, 
 func (e *IntentExecutor) forgotPassword(ctx context.Context, _ *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
 	slog.DebugContext(ctx, "IntentExecutor.forgotPassword", slog.String("user_id", userID))
 	if e.passwords == nil {
-		return "Password reset is not configured.", nil, nil
+		return messages.PasswordResetUnavailable, nil, nil
 	}
 	link, err := e.passwords.RequestReset(ctx, userID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNoPassword) {
-			return "Твой аккаунт использует вход через Google/GitHub. Пароль сбрасывать не нужно! 😊", nil, nil
+			return messages.PasswordResetOAuth, nil, nil
 		}
 		return "", nil, fmt.Errorf("forgotPassword: %w", err)
 	}
-	return fmt.Sprintf("Вот ссылка для сброса пароля:\n%s\n\nДействует 15 минут ⏳", link), nil, nil
+	return messages.PasswordResetLink(link), nil, nil
 }
 
 func (e *IntentExecutor) help() (string, [][]domain.InlineKeyboardButton, error) {
-	msg := `🤖 Доступные команды:
-
-• *мои проекты* — список ваших проектов
-• *статус проекта [название]* — подробности проекта
-• *создай проект [название]* — создать новый проект
-• *добавь участника [email] в [проект]* — добавить участника
-• *удали участника [имя] из [проект]* — удалить участника
-• *участники [проект]* — список участников
-• *оценка [проект]* — агрегированная оценка
-• *забыл пароль* — сброс пароля
-• *помощь* — эта справка
-
-Вы также можете отправлять сообщения в свободной форме — бот постарается понять ваш запрос.`
-
-	return msg, nil, nil
+	return messages.Help, nil, nil
 }
 
 func (e *IntentExecutor) unknown() (string, [][]domain.InlineKeyboardButton, error) {
-	return "Не удалось распознать команду. Введите «помощь» для списка доступных команд.", nil, nil
+	return messages.UnknownCommand, nil, nil
 }
 
 // NeedsSession returns true if the intent type requires a multi-step session
@@ -521,16 +482,5 @@ func NeedsSession(intentType domain.IntentType) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func statusEmoji(status string) string {
-	switch strings.ToLower(status) {
-	case "active":
-		return "✅"
-	case "archived":
-		return "📦"
-	default:
-		return "📌"
 	}
 }

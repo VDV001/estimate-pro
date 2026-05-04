@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
+	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/handler/messages"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/llm"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/telegram"
 )
@@ -277,7 +278,7 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 	if fileType == "" {
 		slog.WarnContext(ctx, "BotUsecase.handleFileUpload: unsupported file type", slog.String("file_name", doc.FileName), slog.String("mime_type", doc.MimeType))
 		_ = uc.telegram.SetReaction(ctx, chatID, msgID, "🤔")
-		_ = uc.telegram.SendMessage(ctx, chatID, "Этот формат я пока не поддерживаю. Скинь PDF, DOCX, XLSX, MD, TXT или CSV!")
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.UnsupportedFileFormat)
 		return nil
 	}
 
@@ -286,7 +287,7 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 
 	if doc.FileSize > maxBotFileSize {
 		slog.WarnContext(ctx, "BotUsecase.handleFileUpload: file too large", slog.String("file_name", doc.FileName), slog.Int64("file_size", doc.FileSize))
-		_ = uc.telegram.SendMessage(ctx, chatID, "Файл слишком большой (макс 50MB)")
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.FileTooLarge)
 		return nil
 	}
 
@@ -305,12 +306,12 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 	projects, _, err := uc.executor.projects.ListByUser(ctx, userID, 20, 0)
 	if err != nil {
 		slog.ErrorContext(ctx, "BotUsecase.handleFileUpload: ListByUser failed", slog.String("user_id", userID), slog.String("error", err.Error()))
-		_ = uc.telegram.SendMessage(ctx, chatID, "У тебя пока нет проектов. Сначала создай проект!")
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.NoProjectsForUpload)
 		return nil
 	}
 	if len(projects) == 0 {
 		slog.InfoContext(ctx, "BotUsecase.handleFileUpload: no projects for user", slog.String("user_id", userID))
-		_ = uc.telegram.SendMessage(ctx, chatID, "У тебя пока нет проектов. Сначала создай проект!")
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.NoProjectsForUpload)
 		return nil
 	}
 
@@ -334,10 +335,10 @@ func (uc *BotUsecase) handleFileUpload(ctx context.Context, msg *telegram.Messag
 		})
 	}
 	keyboard = append(keyboard, []domain.InlineKeyboardButton{
-		{Text: "Отмена", CallbackData: domain.CancelCallback()},
+		{Text: messages.BtnCancel, CallbackData: domain.CancelCallback()},
 	})
 
-	_ = uc.telegram.SendInlineKeyboard(ctx, chatID, fmt.Sprintf("Файл *%s* получен! В какой проект загрузить?", doc.FileName), keyboard)
+	_ = uc.telegram.SendInlineKeyboard(ctx, chatID, messages.FileReceivedAskProject(doc.FileName), keyboard)
 	return nil
 }
 
@@ -375,10 +376,10 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 	}
 
 	slog.InfoContext(ctx, "BotUsecase.uploadFile: success", slog.String("file_name", doc.FileName), slog.String("project_id", projectID))
-	_ = uc.telegram.SendMarkdown(ctx, chatID, fmt.Sprintf("Файл *%s* загружен в проект! 📎", doc.FileName))
+	_ = uc.telegram.SendMarkdown(ctx, chatID, messages.FileUploadedToProject(doc.FileName))
 
 	// Save to memory.
-	go uc.saveMemory(context.WithoutCancel(ctx), userID, chatID, "Загрузил файл: "+doc.FileName, "Файл загружен", string(domain.IntentUploadDocument))
+	go uc.saveMemory(context.WithoutCancel(ctx), userID, chatID, messages.MemoryUserUploadedFile(doc.FileName), messages.MemoryEstiFileUploaded, string(domain.IntentUploadDocument))
 
 	return nil
 }
@@ -428,7 +429,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 	}
 	if err != nil {
 		slog.WarnContext(ctx, "BotUsecase.ProcessCallback: user not linked", slog.Int64("telegram_user_id", cb.From.ID), slog.String("error", err.Error()))
-		_ = uc.telegram.SendMessage(ctx, chatID, "Привяжите аккаунт в настройках EstimatePro.")
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.AccountNotLinked)
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 		return nil //nolint:nilerr // unlinked user is not an error
 	}
@@ -440,15 +441,15 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 		if sErr == nil {
 			_ = uc.sessions.Cancel(ctx, session.ID)
 		}
-		_ = uc.telegram.SendMessage(ctx, chatID, "Отменено.")
-		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "Отменено")
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.SessionCancelled)
+		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, messages.ToastCancelled)
 
 	case action.IsConfirm():
 		slog.InfoContext(ctx, "BotUsecase.ProcessCallback: confirm action", slog.String("chat_id", chatID))
 		session, sErr := uc.sessions.GetActive(ctx, chatID)
 		if sErr != nil {
 			slog.WarnContext(ctx, "BotUsecase.ProcessCallback: confirm but no active session", slog.String("chat_id", chatID), slog.String("error", sErr.Error()))
-			_ = uc.telegram.SendMessage(ctx, chatID, "Нет активной сессии.")
+			_ = uc.telegram.SendMessage(ctx, chatID, messages.NoActiveSession)
 			_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
 			return nil
 		}
@@ -459,7 +460,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 			_ = uc.telegram.SendMessage(ctx, chatID, sessionActionErrorMessage(err, state))
 		} else {
 			slog.InfoContext(ctx, "BotUsecase.ProcessCallback: session action completed", slog.String("session_id", session.ID))
-			_ = uc.telegram.SendMessage(ctx, chatID, "Готово!") // TODO(#37): extract UI string
+			_ = uc.telegram.SendMessage(ctx, chatID, messages.SessionDone)
 		}
 		_ = uc.sessions.Complete(ctx, session.ID)
 		_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "")
@@ -484,7 +485,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 				FileSize: fileSize,
 			}
 			_ = uc.sessions.Complete(ctx, session.ID)
-			_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, "Загружаю...")
+			_ = uc.telegram.AnswerCallbackQuery(ctx, cb.ID, messages.ToastUploading)
 			return uc.uploadFile(ctx, chatID, link.UserID, payload, doc, state["file_type"])
 		}
 
@@ -508,7 +509,7 @@ func (uc *BotUsecase) ProcessCallback(ctx context.Context, update *telegram.Upda
 				state, _ := uc.sessions.GetState(session)
 				_ = uc.telegram.SendMessage(ctx, chatID, sessionActionErrorMessage(execErr, state))
 			} else {
-				_ = uc.telegram.SendMessage(ctx, chatID, "Готово!") // TODO(#37): extract UI string
+				_ = uc.telegram.SendMessage(ctx, chatID, messages.SessionDone)
 			}
 			_ = uc.sessions.Complete(ctx, session.ID)
 		}
@@ -547,7 +548,7 @@ func (uc *BotUsecase) handleCreateProjectSession(ctx context.Context, session *d
 			slog.ErrorContext(ctx, "BotUsecase.handleCreateProjectSession: Advance failed", slog.String("error", err.Error()))
 			return fmt.Errorf("BotUsecase.handleCreateProjectSession: %w", err)
 		}
-		_ = uc.telegram.SendMessage(ctx, chatID, "Отлично! Теперь введите описание проекта (или 'пропустить').")
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.AskProjectDescription)
 		return nil
 	case 1:
 		// Step 1: we got the description — create the project.
@@ -557,7 +558,7 @@ func (uc *BotUsecase) handleCreateProjectSession(ctx context.Context, session *d
 			return fmt.Errorf("BotUsecase.handleCreateProjectSession: %w", err)
 		}
 		description := text
-		if strings.EqualFold(description, "пропустить") {
+		if strings.EqualFold(description, messages.SkipKeyword) {
 			description = ""
 		}
 
@@ -565,12 +566,12 @@ func (uc *BotUsecase) handleCreateProjectSession(ctx context.Context, session *d
 		projectID, err := uc.executor.projects.Create(ctx, "", state["name"], description, userID)
 		if err != nil {
 			slog.ErrorContext(ctx, "BotUsecase.handleCreateProjectSession: Create failed", slog.String("name", state["name"]), slog.String("error", err.Error()))
-			_ = uc.telegram.SendMessage(ctx, chatID, "Ошибка при создании проекта.")
+			_ = uc.telegram.SendMessage(ctx, chatID, messages.ErrCreateProject)
 			return fmt.Errorf("BotUsecase.handleCreateProjectSession: %w", err)
 		}
 
 		slog.InfoContext(ctx, "BotUsecase.handleCreateProjectSession: project created", slog.String("project_id", projectID), slog.String("name", state["name"]))
-		_ = uc.telegram.SendMarkdown(ctx, chatID, fmt.Sprintf("Проект *%s* создан\\! ID: `%s`", state["name"], projectID))
+		_ = uc.telegram.SendMarkdown(ctx, chatID, messages.ProjectCreated(state["name"], projectID))
 		return uc.sessions.Complete(ctx, session.ID)
 	default:
 		slog.WarnContext(ctx, "BotUsecase.handleCreateProjectSession: unexpected step, completing", slog.Int("step", session.Step))
@@ -587,7 +588,7 @@ func (uc *BotUsecase) handleAddMemberSession(ctx context.Context, session *domai
 			slog.ErrorContext(ctx, "BotUsecase.handleAddMemberSession: Advance failed", slog.String("error", err.Error()))
 			return fmt.Errorf("BotUsecase.handleAddMemberSession: %w", err)
 		}
-		_ = uc.telegram.SendMessage(ctx, chatID, "Введите email участника.")
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.AskMemberEmail)
 		return nil
 	case 1:
 		// Step 1: got email — add member.
@@ -600,12 +601,12 @@ func (uc *BotUsecase) handleAddMemberSession(ctx context.Context, session *domai
 		slog.InfoContext(ctx, "BotUsecase.handleAddMemberSession: adding member", slog.String("project_id", state["project_id"]), slog.String("email", text))
 		if err := uc.executor.members.AddByEmail(ctx, state["project_id"], text, "developer", userID); err != nil {
 			slog.ErrorContext(ctx, "BotUsecase.handleAddMemberSession: AddByEmail failed", slog.String("project_id", state["project_id"]), slog.String("email", text), slog.String("error", err.Error()))
-			_ = uc.telegram.SendMessage(ctx, chatID, "Ошибка при добавлении участника.")
+			_ = uc.telegram.SendMessage(ctx, chatID, messages.ErrAddMember)
 			return fmt.Errorf("BotUsecase.handleAddMemberSession: %w", err)
 		}
 
 		slog.InfoContext(ctx, "BotUsecase.handleAddMemberSession: member added", slog.String("email", text), slog.String("project_id", state["project_id"]))
-		_ = uc.telegram.SendMessage(ctx, chatID, "Участник добавлен!")
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.MemberAdded)
 		return uc.sessions.Complete(ctx, session.ID)
 	default:
 		slog.WarnContext(ctx, "BotUsecase.handleAddMemberSession: unexpected step, completing", slog.Int("step", session.Step))
@@ -618,17 +619,14 @@ func (uc *BotUsecase) handleAddMemberSession(ctx context.Context, session *domai
 // not found) over a generic fallback. Mirrors the sentinel mapping in
 // IntentExecutor.Execute paths so session-flow UX stays consistent with
 // text-flow UX.
-//
-// TODO(#37): UI literals belong in bot/handler/messages — kept inline
-// here while the broader extraction is tracked separately.
 func sessionActionErrorMessage(err error, state map[string]string) string {
 	switch {
 	case errors.Is(err, domain.ErrProjectNotFound):
-		return projectNotFoundMsg(state["project_name"])
+		return messages.ProjectNotFound(state["project_name"])
 	case errors.Is(err, domain.ErrMemberNotFound):
-		return memberNotFoundMsg(state["user_name"])
+		return messages.MemberNotFound(state["user_name"])
 	default:
-		return "Ошибка при выполнении действия."
+		return messages.ErrSessionAction
 	}
 }
 
