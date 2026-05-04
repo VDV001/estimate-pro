@@ -17,7 +17,6 @@ import (
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/handler/messages"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/llm"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/telegram"
-	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 )
 
 // EnvLLMConfig holds LLM configuration from environment variables (fallback).
@@ -52,7 +51,9 @@ type BotUsecase struct {
 
 const memoryLimit = 20 // last N messages to keep per user
 
-// New creates a new BotUsecase with all dependencies.
+// New creates a new BotUsecase with all dependencies. The formatter is
+// injected pre-built — composition root owns the construction so the
+// usecase does not import shared/llm directly.
 func New(
 	sessionRepo domain.SessionRepository,
 	links domain.UserLinkRepository,
@@ -64,6 +65,7 @@ func New(
 	llmFactory func(domain.LLMProviderType, string, string, string) (domain.LLMParser, error),
 	envLLM EnvLLMConfig,
 	botUsername string,
+	formatter *llm.Formatter,
 	projects domain.ProjectManager,
 	members domain.MemberManager,
 	estimations domain.EstimationManager,
@@ -82,30 +84,8 @@ func New(
 		llmFactory:   llmFactory,
 		envLLM:       envLLM,
 		botUsername:  botUsername,
-		formatter:    llm.NewFormatter(buildEnvFormatterCompleter(envLLM)),
+		formatter:    formatter,
 	}
-}
-
-// buildEnvFormatterCompleter constructs a shared/llm.Completer from the
-// env LLM config for use by the personality formatter (LLM #2). When
-// envLLM is missing or invalid (no provider, bad key) it returns nil —
-// Formatter handles nil by falling back to the raw action result.
-//
-// Formatter intentionally uses env config (not the per-user config) so
-// Esti's voice is consistent regardless of which user-scoped parser
-// resolves the intent.
-func buildEnvFormatterCompleter(envLLM EnvLLMConfig) sharedllm.Completer {
-	if envLLM.Provider == "" {
-		return nil
-	}
-	parser, err := sharedllm.NewParser(sharedllm.LLMProviderType(envLLM.Provider), envLLM.APIKey, envLLM.Model, envLLM.BaseURL)
-	if err != nil {
-		slog.Warn("BotUsecase.buildEnvFormatterCompleter: env LLM parser unavailable, formatter will fall back to raw output",
-			slog.String("provider", envLLM.Provider),
-			slog.String("error", err.Error()))
-		return nil
-	}
-	return parser
 }
 
 // ProcessMessage handles an incoming Telegram message update.

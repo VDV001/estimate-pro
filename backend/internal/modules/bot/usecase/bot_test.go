@@ -317,6 +317,7 @@ func (d *testBotDeps) build() *BotUsecase {
 		},
 		EnvLLMConfig{Provider: "claude", APIKey: "test-key", Model: "test-model"},
 		"estimate_pro_bot",
+		nil, // formatter — tests use raw fallback
 		d.projects,
 		d.members,
 		d.estimations,
@@ -1998,6 +1999,7 @@ func TestProcessMessage_ResolveLLMParser_NoConfig(t *testing.T) {
 		},
 		EnvLLMConfig{Provider: "claude", APIKey: "key", Model: "model"},
 		"bot",
+		nil, // formatter — tests use raw fallback
 		deps.projects,
 		deps.members,
 		deps.estimations,

@@ -62,6 +62,7 @@ import (
 	botRepo "github.com/VDV001/estimate-pro/backend/internal/modules/bot/repository"
 	botTelegram "github.com/VDV001/estimate-pro/backend/internal/modules/bot/telegram"
 	botUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/bot/usecase"
+	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 
 	"github.com/VDV001/estimate-pro/backend/internal/infra/composio"
 )
@@ -220,6 +221,14 @@ func main() {
 	notifyH := notifyHandler.New(notifyUC)
 
 	// Bot module
+	envLLM := botUsecase.EnvLLMConfig{
+		Provider: cfg.LLM.Provider,
+		APIKey:   cfg.LLM.APIKey,
+		Model:    cfg.LLM.Model,
+		BaseURL:  cfg.LLM.BaseURL,
+	}
+	botFormatter := botLLM.NewFormatter(buildEnvFormatterCompleter(envLLM))
+
 	botUC := botUsecase.New(
 		botSessionRepo,
 		botLinkRepo,
@@ -229,13 +238,9 @@ func main() {
 		botPrefsRepo,
 		botTG,
 		botLLM.NewParser,
-		botUsecase.EnvLLMConfig{
-			Provider: cfg.LLM.Provider,
-			APIKey:   cfg.LLM.APIKey,
-			Model:    cfg.LLM.Model,
-			BaseURL:  cfg.LLM.BaseURL,
-		},
+		envLLM,
 		cfg.TelegramBot.BotUsername,
+		botFormatter,
 		&botProjectAdapter{projectUC: projectUC},
 		&botMemberAdapter{memberUC: memberUC},
 		&botEstimationAdapter{estimationUC: estimationUC, notifyDispatcher: notifyDispatcher},
@@ -585,4 +590,26 @@ func (a *botPasswordResetAdapter) RequestReset(ctx context.Context, userID strin
 		return "", err
 	}
 	return link, nil
+}
+
+// buildEnvFormatterCompleter constructs a shared/llm.Completer from the
+// env LLM config for the bot's personality formatter (LLM #2). Composition
+// owns the wiring so the bot usecase does not import shared/llm directly.
+//
+// Returns nil when envLLM is unset or invalid — Formatter handles nil by
+// falling back to the raw action result, so bot stays functional even
+// without an LLM provider configured. Errors at construction are logged
+// once at startup; runtime calls go through the formatter's completer.
+func buildEnvFormatterCompleter(envLLM botUsecase.EnvLLMConfig) sharedllm.Completer {
+	if envLLM.Provider == "" {
+		return nil
+	}
+	parser, err := sharedllm.NewParser(sharedllm.LLMProviderType(envLLM.Provider), envLLM.APIKey, envLLM.Model, envLLM.BaseURL)
+	if err != nil {
+		slog.Warn("buildEnvFormatterCompleter: env LLM parser unavailable, formatter will fall back to raw output",
+			slog.String("provider", envLLM.Provider),
+			slog.String("error", err.Error()))
+		return nil
+	}
+	return parser
 }
