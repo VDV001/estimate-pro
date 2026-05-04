@@ -19,4 +19,5 @@ var (
 	ErrExtractionNotFound      = errors.New("extractor: extraction not found")
 	ErrDocumentTooLarge        = errors.New("extractor: document exceeds maximum allowed size")
 	ErrPromptInjectionDetected = errors.New("extractor: prompt injection detected in document text")
+	ErrLLMResponseSchemaInvalid = errors.New("extractor: LLM response is not parseable JSON or violates the {tasks:[{name,estimate_hint}]} schema")
 )
