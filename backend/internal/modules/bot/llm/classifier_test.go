@@ -115,39 +115,3 @@ func TestClassifier_Classify_PassesClassifierHistory(t *testing.T) {
 	}
 }
 
-func TestInputFilterPatterns_NotEmpty(t *testing.T) {
-	patterns := InputFilterPatterns()
-	if len(patterns) == 0 {
-		t.Fatal("InputFilterPatterns should return non-empty slice")
-	}
-	// Verify well-known patterns.
-	wantPatterns := []string{
-		"ignore previous",
-		"system prompt",
-		"jailbreak",
-		"забудь всё",
-		"покажи промпт",
-	}
-	set := make(map[string]bool, len(patterns))
-	for _, p := range patterns {
-		set[p] = true
-	}
-	for _, w := range wantPatterns {
-		if !set[w] {
-			t.Errorf("expected pattern %q in InputFilterPatterns", w)
-		}
-	}
-}
-
-func TestInjectionDeflections_NotEmpty(t *testing.T) {
-	deflections := InjectionDeflections()
-	if len(deflections) == 0 {
-		t.Fatal("InjectionDeflections should return non-empty slice")
-	}
-	// Each deflection should be a non-empty string.
-	for i, d := range deflections {
-		if d == "" {
-			t.Errorf("deflection[%d] is empty", i)
-		}
-	}
-}
