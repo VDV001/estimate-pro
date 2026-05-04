@@ -21,4 +21,5 @@ var (
 	ErrMissingExtraction       = errors.New("extractor: extraction id is required")
 	ErrInvalidActor            = errors.New("extractor: actor is required")
 	ErrExtractionNotFound      = errors.New("extractor: extraction not found")
+	ErrDocumentTooLarge        = errors.New("extractor: document exceeds maximum allowed size")
 )
