@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/extractor/domain"
+	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 )
 
 // ExtractionArgs is the JSON payload enqueued onto the river queue
@@ -80,6 +81,46 @@ const workerActor = "worker"
 // other stages. ADR-016 §timeouts.
 const readerTimeout = 10 * time.Second
 
+// llmMaxTokens is the response budget handed to every extraction
+// LLM call. 4096 fits roughly 30 tasks at ~120 tokens per task
+// (name + estimate_hint + JSON syntax) which covers the realistic
+// upper bound for a single ТЗ. The adapter-default of 1024 is
+// silently truncating, so we set this explicitly per ADR-016.
+const llmMaxTokens = 4096
+
+// extractionSystemPrompt is the static contract handed to every
+// LLM call: extract tasks, return strict JSON. The prompt is in
+// Russian because the documents and the operator surface (bot,
+// frontend) are Russian — keeping the LLM in the same language
+// reduces translation drift in task names. JSON schema is
+// validated by the worker on the response (Pair 5), so the
+// prompt only needs to elicit the shape, not enforce it.
+const extractionSystemPrompt = `Ты извлекаешь задачи из технического задания (ТЗ) для дальнейшей оценки.
+Каждая задача — самостоятельная единица оценки (типичный размер: от часа до нескольких дней работы одного инженера).
+
+Верни строго JSON-объект, без markdown, без комментариев, без обрамляющего текста.
+
+Схема:
+{
+  "tasks": [
+    {"name": "<короткое название задачи (1..255 символов)>", "estimate_hint": "<подсказка оценщику: часы, сложность, риски — может быть пустой>"}
+  ]
+}
+
+Если ТЗ не содержит задач (пустой документ, нерелевантный текст), верни {"tasks": []}.`
+
+// buildLLMPrompt assembles the user-side prompt for a single
+// extraction call. The system prompt is static; the user prompt
+// embeds the extracted document text verbatim so the model sees
+// the original structure (line breaks, headings, lists) rather
+// than a re-flowed paragraph. PR-B5+ may extend this to include
+// project name + description as additional context — for now the
+// extraction module does not depend on the project module and
+// the document text alone is enough for MVP.
+func buildLLMPrompt(text string) (system, user string) {
+	return extractionSystemPrompt, "Текст ТЗ:\n\n" + text
+}
+
 func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) error {
 	ext, err := w.store.GetByID(ctx, args.ExtractionID)
 	if err != nil {
@@ -109,6 +150,15 @@ func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) err
 			return fmt.Errorf("worker.Process record prompt-injection failure: %w", err)
 		}
 		return fmt.Errorf("worker.Process security guard for extraction %q: %w", ext.ID, domain.ErrPromptInjectionDetected)
+	}
+
+	systemPrompt, userPrompt := buildLLMPrompt(text)
+	_, _, err = w.llm.Complete(ctx, systemPrompt, userPrompt, sharedllm.CompletionOptions{
+		MaxTokens: llmMaxTokens,
+		JSONMode:  true,
+	})
+	if err != nil {
+		return fmt.Errorf("worker.Process LLM dispatch for extraction %q: %w", ext.ID, err)
 	}
 
 	return nil
