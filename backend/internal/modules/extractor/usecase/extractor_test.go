@@ -170,3 +170,104 @@ func TestExtractor_CancelExtraction_AlreadyTerminal(t *testing.T) {
 		t.Errorf("events len=%d, want 0 (no event on rejected transition)", len(repo.events))
 	}
 }
+
+// ---------- RetryExtraction ----------
+
+func TestExtractor_RetryExtraction(t *testing.T) {
+	repo := newFakeRepo()
+	ext := mustNewExtraction(t, "doc-1", "ver-1")
+	if err := ext.MarkProcessing(); err != nil {
+		t.Fatalf("MarkProcessing: %v", err)
+	}
+	if err := ext.MarkFailed("LLM timeout"); err != nil {
+		t.Fatalf("MarkFailed: %v", err)
+	}
+	repo.extractions[ext.ID] = ext
+
+	uc := usecase.NewExtractor(repo)
+	if err := uc.RetryExtraction(t.Context(), ext.ID, "user:42"); err != nil {
+		t.Fatalf("RetryExtraction: %v", err)
+	}
+
+	if ext.Status != domain.StatusPending {
+		t.Errorf("Status=%q, want %q", ext.Status, domain.StatusPending)
+	}
+	if ext.FailureReason != "" {
+		t.Errorf("FailureReason=%q, want empty after retry", ext.FailureReason)
+	}
+	if ext.StartedAt != nil {
+		t.Errorf("StartedAt should be cleared, got %v", *ext.StartedAt)
+	}
+	if ext.CompletedAt != nil {
+		t.Errorf("CompletedAt should be cleared, got %v", *ext.CompletedAt)
+	}
+	if len(repo.events) != 1 {
+		t.Fatalf("events len=%d, want 1", len(repo.events))
+	}
+	if repo.events[0].FromStatus != domain.StatusFailed || repo.events[0].ToStatus != domain.StatusPending {
+		t.Errorf("event %s→%s, want failed→pending",
+			repo.events[0].FromStatus, repo.events[0].ToStatus)
+	}
+	if repo.events[0].Actor != "user:42" {
+		t.Errorf("event.Actor=%q, want %q", repo.events[0].Actor, "user:42")
+	}
+}
+
+func TestExtractor_RetryExtraction_RejectsNonFailed(t *testing.T) {
+	repo := newFakeRepo()
+	ext := mustNewExtraction(t, "doc-1", "ver-1")
+	repo.extractions[ext.ID] = ext // pending, never failed
+
+	uc := usecase.NewExtractor(repo)
+	err := uc.RetryExtraction(t.Context(), ext.ID, "user:42")
+	if !errors.Is(err, domain.ErrInvalidStatusTransition) {
+		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrInvalidStatusTransition)
+	}
+}
+
+func TestExtractor_RetryExtraction_NotFound(t *testing.T) {
+	repo := newFakeRepo()
+	uc := usecase.NewExtractor(repo)
+	err := uc.RetryExtraction(t.Context(), "ghost", "user:42")
+	if !errors.Is(err, domain.ErrExtractionNotFound) {
+		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrExtractionNotFound)
+	}
+}
+
+// ---------- GetExtraction ----------
+
+func TestExtractor_GetExtraction(t *testing.T) {
+	repo := newFakeRepo()
+	ext := mustNewExtraction(t, "doc-1", "ver-1")
+	if err := ext.MarkProcessing(); err != nil {
+		t.Fatalf("MarkProcessing: %v", err)
+	}
+	repo.extractions[ext.ID] = ext
+
+	// Two synthetic events.
+	ev1, _ := domain.NewExtractionEvent(ext.ID, domain.StatusPending, domain.StatusProcessing, "", "worker")
+	repo.events = append(repo.events, ev1)
+	ev2, _ := domain.NewExtractionEvent(ext.ID, domain.StatusProcessing, domain.StatusFailed, "boom", "worker")
+	repo.events = append(repo.events, ev2)
+
+	uc := usecase.NewExtractor(repo)
+	gotExt, gotEvents, err := uc.GetExtraction(t.Context(), ext.ID)
+	if err != nil {
+		t.Fatalf("GetExtraction: %v", err)
+	}
+	if gotExt.ID != ext.ID {
+		t.Errorf("ext.ID=%q, want %q", gotExt.ID, ext.ID)
+	}
+	if len(gotEvents) != 2 {
+		t.Fatalf("events len=%d, want 2", len(gotEvents))
+	}
+}
+
+func TestExtractor_GetExtraction_NotFound(t *testing.T) {
+	repo := newFakeRepo()
+	uc := usecase.NewExtractor(repo)
+	_, _, err := uc.GetExtraction(t.Context(), "ghost")
+	if !errors.Is(err, domain.ErrExtractionNotFound) {
+		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrExtractionNotFound)
+	}
+}
