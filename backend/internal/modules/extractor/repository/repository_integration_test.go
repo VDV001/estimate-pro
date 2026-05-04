@@ -197,3 +197,160 @@ func TestPostgresExtractionRepository_Create_RejectsDuplicateActive(t *testing.T
 		t.Fatal("Create: expected unique-violation error on duplicate active extraction, got nil")
 	}
 }
+
+// ---------- UpdateStatus + events ----------
+
+func TestPostgresExtractionRepository_UpdateStatus_RoundTrip(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+	ctx := t.Context()
+
+	ext := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
+	if err := repo.Create(ctx, ext); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// pending → processing
+	if err := ext.MarkProcessing(); err != nil {
+		t.Fatalf("MarkProcessing: %v", err)
+	}
+	ev1, err := domain.NewExtractionEvent(ext.ID, domain.StatusPending, domain.StatusProcessing, "", "worker")
+	if err != nil {
+		t.Fatalf("NewExtractionEvent processing: %v", err)
+	}
+	if err := repo.UpdateStatus(ctx, ext, ev1); err != nil {
+		t.Fatalf("UpdateStatus processing: %v", err)
+	}
+
+	// processing → failed
+	if err := ext.MarkFailed("LLM timeout"); err != nil {
+		t.Fatalf("MarkFailed: %v", err)
+	}
+	ev2, err := domain.NewExtractionEvent(ext.ID, domain.StatusProcessing, domain.StatusFailed, "LLM timeout", "worker")
+	if err != nil {
+		t.Fatalf("NewExtractionEvent failed: %v", err)
+	}
+	if err := repo.UpdateStatus(ctx, ext, ev2); err != nil {
+		t.Fatalf("UpdateStatus failed: %v", err)
+	}
+
+	// Re-read aggregate
+	got, err := repo.GetByID(ctx, ext.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Status != domain.StatusFailed {
+		t.Errorf("Status=%q, want %q", got.Status, domain.StatusFailed)
+	}
+	if got.FailureReason != "LLM timeout" {
+		t.Errorf("FailureReason=%q, want %q", got.FailureReason, "LLM timeout")
+	}
+	if got.StartedAt == nil {
+		t.Error("StartedAt should be persisted")
+	}
+	if got.CompletedAt == nil {
+		t.Error("CompletedAt should be persisted")
+	}
+
+	// Audit trail in chronological order
+	events, err := repo.GetEvents(ctx, ext.ID)
+	if err != nil {
+		t.Fatalf("GetEvents: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events len=%d, want 2", len(events))
+	}
+	if events[0].FromStatus != domain.StatusPending || events[0].ToStatus != domain.StatusProcessing {
+		t.Errorf("events[0] %s→%s, want pending→processing", events[0].FromStatus, events[0].ToStatus)
+	}
+	if events[1].FromStatus != domain.StatusProcessing || events[1].ToStatus != domain.StatusFailed {
+		t.Errorf("events[1] %s→%s, want processing→failed", events[1].FromStatus, events[1].ToStatus)
+	}
+	if events[1].ErrorMessage != "LLM timeout" {
+		t.Errorf("events[1] error=%q, want %q", events[1].ErrorMessage, "LLM timeout")
+	}
+}
+
+func TestPostgresExtractionRepository_UpdateStatus_NotFound(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+
+	ghost := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
+	ev, err := domain.NewExtractionEvent(ghost.ID, domain.StatusPending, domain.StatusProcessing, "", "worker")
+	if err != nil {
+		t.Fatalf("NewExtractionEvent: %v", err)
+	}
+	err = repo.UpdateStatus(t.Context(), ghost, ev)
+	if !errors.Is(err, domain.ErrExtractionNotFound) {
+		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrExtractionNotFound)
+	}
+}
+
+// ---------- GetActiveByDocumentVersion ----------
+
+func TestPostgresExtractionRepository_GetActiveByDocumentVersion(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+	ctx := t.Context()
+
+	ext := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
+	if err := repo.Create(ctx, ext); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := repo.GetActiveByDocumentVersion(ctx, fx.documentID, fx.documentVersionID)
+	if err != nil {
+		t.Fatalf("GetActiveByDocumentVersion: %v", err)
+	}
+	if got.ID != ext.ID {
+		t.Errorf("ID=%q, want %q", got.ID, ext.ID)
+	}
+}
+
+func TestPostgresExtractionRepository_GetActiveByDocumentVersion_NotFound(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+
+	_, err := repo.GetActiveByDocumentVersion(t.Context(), fx.documentID, fx.documentVersionID)
+	if !errors.Is(err, domain.ErrExtractionNotFound) {
+		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrExtractionNotFound)
+	}
+}
+
+func TestPostgresExtractionRepository_GetActiveByDocumentVersion_IgnoresFailed(t *testing.T) {
+	fx := newExtractorTestFixture(t)
+	repo := repository.NewPostgresExtractionRepository(fx.pool)
+	ctx := t.Context()
+
+	// Drive an extraction to failed.
+	ext := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
+	if err := repo.Create(ctx, ext); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := ext.MarkProcessing(); err != nil {
+		t.Fatalf("MarkProcessing: %v", err)
+	}
+	ev1, _ := domain.NewExtractionEvent(ext.ID, domain.StatusPending, domain.StatusProcessing, "", "worker")
+	if err := repo.UpdateStatus(ctx, ext, ev1); err != nil {
+		t.Fatalf("UpdateStatus processing: %v", err)
+	}
+	if err := ext.MarkFailed("transient"); err != nil {
+		t.Fatalf("MarkFailed: %v", err)
+	}
+	ev2, _ := domain.NewExtractionEvent(ext.ID, domain.StatusProcessing, domain.StatusFailed, "transient", "worker")
+	if err := repo.UpdateStatus(ctx, ext, ev2); err != nil {
+		t.Fatalf("UpdateStatus failed: %v", err)
+	}
+
+	// Failed extractions are outside the partial index — lookup must miss.
+	_, err := repo.GetActiveByDocumentVersion(ctx, fx.documentID, fx.documentVersionID)
+	if !errors.Is(err, domain.ErrExtractionNotFound) {
+		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrExtractionNotFound)
+	}
+
+	// And a fresh Create for the same (document, version) must now succeed.
+	retry := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
+	if err := repo.Create(ctx, retry); err != nil {
+		t.Fatalf("Create after failure: %v", err)
+	}
+}
