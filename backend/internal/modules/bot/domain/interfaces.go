@@ -6,6 +6,8 @@ package domain
 import (
 	"context"
 	"io"
+
+	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 )
 
 // SessionRepository manages bot conversation sessions.
@@ -32,12 +34,10 @@ type UserResolver interface {
 	ResolveByTelegramID(ctx context.Context, telegramUserID int64) (userID string, err error)
 }
 
-// LLMConfigRepository manages LLM provider configurations.
-type LLMConfigRepository interface {
-	GetSystem(ctx context.Context) (*LLMConfig, error)
-	GetByUserID(ctx context.Context, userID string) (*LLMConfig, error)
-	Upsert(ctx context.Context, cfg *LLMConfig) error
-}
+// LLMConfigRepository manages LLM provider configurations. Aliased to
+// [sharedllm.LLMConfigRepository] — bot's postgres adapter still owns the
+// table but the port is canonical.
+type LLMConfigRepository = sharedllm.LLMConfigRepository
 
 // LLMParser parses user messages into structured intents using an LLM.
 type LLMParser interface {
