@@ -427,3 +427,61 @@ func TestProcess_AfterSecurityClean_DispatchesToLLM(t *testing.T) {
 		t.Fatalf("expected CompletionOptions.MaxTokens to be set (>0), got %d", call.opts.MaxTokens)
 	}
 }
+
+// TestProcess_LLMResponseInvalid_MarksFailedAndReturnsSentinel pins
+// the parse + schema-validate gate at the LLM boundary. The model
+// can hallucinate, drift schema, or emit non-JSON garbage; the
+// worker must detect that, transition the extraction to failed
+// with a meaningful audit reason, and surface
+// domain.ErrLLMResponseSchemaInvalid so the river runner can
+// alert (this is a model-quality signal, not a transient
+// retryable error).
+//
+// Table-driven over the realistic failure modes:
+//   - non-JSON garbage
+//   - JSON object without "tasks" field
+//   - "tasks" field present but not an array
+//   - "tasks" array contains an item without "name"
+//
+// Two UpdateStatus calls are expected (pending->processing,
+// processing->failed); zero SaveTasks.
+func TestProcess_LLMResponseInvalid_MarksFailedAndReturnsSentinel(t *testing.T) {
+	cases := []struct {
+		name     string
+		respText string
+	}{
+		{"non_json_garbage", "Извини, я не смог разобрать ТЗ."},
+		{"missing_tasks_field", `{"items":[]}`},
+		{"tasks_not_array", `{"tasks":"foo"}`},
+		{"task_missing_name", `{"tasks":[{"estimate_hint":"4h"}]}`},
+		{"task_empty_name", `{"tasks":[{"name":"   ","estimate_hint":"4h"}]}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ext := pendingExtraction(t)
+			store := &fakeStore{got: ext}
+			source := &capturingSource{respData: []byte("PDF-bytes"), respName: "spec.pdf"}
+			reader := &capturingReader{respText: "any clean text"}
+			security := &capturingSecurity{verdict: false}
+			llm := &capturingCompleter{respText: tc.respText}
+
+			w := worker.NewExtractionWorker(store, source, reader, llm, security)
+
+			err := w.Process(context.Background(), worker.ExtractionArgs{ExtractionID: ext.ID})
+			if !errors.Is(err, domain.ErrLLMResponseSchemaInvalid) {
+				t.Fatalf("expected ErrLLMResponseSchemaInvalid, got %v", err)
+			}
+
+			if len(store.updateCalls) != 2 {
+				t.Fatalf("expected 2 UpdateStatus calls (pending->processing, processing->failed), got %d", len(store.updateCalls))
+			}
+			if got := store.updateCalls[1].Status; got != domain.StatusFailed {
+				t.Fatalf("expected ext.Status=failed after schema-invalid response, got %s", got)
+			}
+			if store.saveCallCount != 0 {
+				t.Fatalf("expected zero SaveTasks calls when LLM response is schema-invalid, got %d", store.saveCallCount)
+			}
+		})
+	}
+}
