@@ -16,7 +16,10 @@ func NewPDFReader() *PDFReader { return &PDFReader{} }
 
 func (r *PDFReader) Supports(ft FileType) bool { return ft == FileTypePDF }
 
-func (r *PDFReader) Parse(_ context.Context, filename string, data []byte) (string, error) {
+func (r *PDFReader) Parse(ctx context.Context, filename string, data []byte) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if len(data) == 0 {
 		return "", fmt.Errorf("pdf %q: %w", filename, ErrEmptyContent)
 	}

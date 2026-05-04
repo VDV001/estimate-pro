@@ -29,6 +29,9 @@ func (c *Composite) Supports(ft FileType) bool {
 }
 
 func (c *Composite) Parse(ctx context.Context, filename string, data []byte) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if c.maxBytes > 0 && int64(len(data)) > c.maxBytes {
 		return "", fmt.Errorf("composite %q: %w (size=%d, max=%d)", filename, ErrFileTooLarge, len(data), c.maxBytes)
 	}
