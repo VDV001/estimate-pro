@@ -488,3 +488,64 @@ func TestProcess_LLMResponseInvalid_MarksFailedAndReturnsSentinel(t *testing.T) 
 		})
 	}
 }
+
+// TestProcess_HappyPath_PersistsTasksAndCompletes pins the full
+// happy-path slice. The LLM returns a schema-valid JSON with two
+// tasks; the worker maps each to domain.ExtractedTask via the
+// constructor (validates the 1..255 trimmed-name invariant), calls
+// SaveTasks atomically, then transitions processing->completed via
+// Extraction.MarkCompleted with the same tasks (so ext.Tasks is
+// authoritative on the post-state). Two UpdateStatus calls land
+// (pending->processing, processing->completed) and one SaveTasks
+// call lands. The audit event for the completed transition has
+// FromStatus=processing, ToStatus=completed.
+func TestProcess_HappyPath_PersistsTasksAndCompletes(t *testing.T) {
+	const llmResponse = `{"tasks":[
+  {"name":"Build login screen","estimate_hint":"4h"},
+  {"name":"Add password reset flow","estimate_hint":""}
+]}`
+
+	ext := pendingExtraction(t)
+	store := &fakeStore{got: ext}
+	source := &capturingSource{respData: []byte("PDF-bytes"), respName: "spec.pdf"}
+	reader := &capturingReader{respText: "doc text"}
+	security := &capturingSecurity{verdict: false}
+	llm := &capturingCompleter{respText: llmResponse}
+
+	w := worker.NewExtractionWorker(store, source, reader, llm, security)
+
+	if err := w.Process(context.Background(), worker.ExtractionArgs{ExtractionID: ext.ID}); err != nil {
+		t.Fatalf("expected nil error on happy path, got %v", err)
+	}
+
+	if got := store.saveCallCount; got != 1 {
+		t.Fatalf("expected SaveTasks called once on happy path, got %d", got)
+	}
+	if got := store.savedID; got != ext.ID {
+		t.Fatalf("expected SaveTasks(extID=%q), got %q", ext.ID, got)
+	}
+	if got := len(store.savedTasks); got != 2 {
+		t.Fatalf("expected 2 tasks persisted, got %d", got)
+	}
+	if name := store.savedTasks[0].Name; name != "Build login screen" {
+		t.Fatalf("expected task[0].Name=%q, got %q", "Build login screen", name)
+	}
+	if hint := store.savedTasks[0].EstimateHint; hint != "4h" {
+		t.Fatalf("expected task[0].EstimateHint=%q, got %q", "4h", hint)
+	}
+	if name := store.savedTasks[1].Name; name != "Add password reset flow" {
+		t.Fatalf("expected task[1].Name=%q, got %q", "Add password reset flow", name)
+	}
+
+	if got := len(store.updateCalls); got != 2 {
+		t.Fatalf("expected 2 UpdateStatus calls (pending->processing, processing->completed), got %d", got)
+	}
+	finalExt := store.updateCalls[1]
+	if finalExt.Status != domain.StatusCompleted {
+		t.Fatalf("expected ext.Status=completed after happy-path persist, got %s", finalExt.Status)
+	}
+	finalEvent := store.updateEvents[1]
+	if finalEvent.FromStatus != domain.StatusProcessing || finalEvent.ToStatus != domain.StatusCompleted {
+		t.Fatalf("expected event processing->completed, got %s->%s", finalEvent.FromStatus, finalEvent.ToStatus)
+	}
+}
