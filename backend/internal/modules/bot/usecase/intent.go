@@ -76,6 +76,8 @@ func (e *IntentExecutor) Execute(ctx context.Context, intent *domain.Intent, use
 		return e.listMembers(ctx, intent, userID)
 	case domain.IntentGetAggregated:
 		return e.getAggregated(ctx, intent, userID)
+	case domain.IntentRenderReport:
+		return e.renderReport(ctx, intent, userID)
 	case domain.IntentSubmitEstimation:
 		return e.submitEstimation(ctx, intent, userID)
 	case domain.IntentRequestEstimation:
@@ -382,6 +384,42 @@ func (e *IntentExecutor) getAggregated(ctx context.Context, intent *domain.Inten
 	}
 
 	return result, nil, nil
+}
+
+// renderReport hands the user a deeplink to the frontend's report
+// download path. Format defaults to pdf when the LLM-classifier
+// did not extract one. Reporter port is optional — when nil
+// (dev/test), respond with a friendly fallback so the chat UX
+// stays coherent.
+func (e *IntentExecutor) renderReport(ctx context.Context, intent *domain.Intent, userID string) (string, [][]domain.InlineKeyboardButton, error) {
+	projectID, err := e.resolveProjectID(ctx, intent, userID)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrProjectNotIdentified):
+			return messages.AskProjectForReport, nil, nil
+		case errors.Is(err, domain.ErrProjectNotFound):
+			return messages.ProjectNotFound(intent.Params["project_name"]), nil, nil
+		default:
+			return "", nil, err
+		}
+	}
+
+	if e.reporter == nil {
+		return messages.ReportUnavailable, nil, nil
+	}
+
+	format := strings.ToLower(intent.Params["format"])
+	if format == "" {
+		format = "pdf"
+	}
+	url, err := e.reporter.BuildReportURL(ctx, projectID, format)
+	if err != nil {
+		slog.ErrorContext(ctx, "IntentExecutor.renderReport: BuildReportURL failed",
+			slog.String("project_id", projectID), slog.String("format", format),
+			slog.String("error", err.Error()))
+		return "", nil, fmt.Errorf("IntentExecutor.Execute: %w", err)
+	}
+	return messages.ReportReady(url, format), nil, nil
 }
 
 // resolveProjectID resolves a project ID from intent params using two strategies:
