@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -284,6 +285,7 @@ func (h *Handler) mapError(w http.ResponseWriter, err error) {
 		errors.Is(err, domain.ErrMissingDocumentVersion):
 		sharedErrors.BadRequest(w, err.Error())
 	default:
+		slog.Error("extractor.handler: unmapped use-case error", "error", err)
 		sharedErrors.InternalError(w, "internal error")
 	}
 }
