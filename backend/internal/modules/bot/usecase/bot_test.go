@@ -2238,6 +2238,7 @@ func TestProcessMessage_FileUpload_TriggersExtraction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessMessage: %v", err)
 	}
+	uc.WaitForExtractionPollsForTest()
 
 	if extractionCalls != 1 {
 		t.Fatalf("extractions.RequestExtraction calls=%d, want 1", extractionCalls)
@@ -2332,6 +2333,7 @@ func TestProcessMessage_FileUpload_PollsAndRepliesTasks(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ProcessMessage: %v", err)
 	}
+	uc.WaitForExtractionPollsForTest()
 
 	if deps.extractions.getCalls < 2 {
 		t.Errorf("GetExtraction calls=%d, want >= 2", deps.extractions.getCalls)
@@ -2424,6 +2426,7 @@ func TestProcessMessage_FileUpload_PollFailureAndTimeout(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("ProcessMessage: %v", err)
 			}
+			uc.WaitForExtractionPollsForTest()
 
 			joined := strings.Join(markdowns, "\n---\n")
 			if !strings.Contains(strings.ToLower(joined), tc.wantContains) {
