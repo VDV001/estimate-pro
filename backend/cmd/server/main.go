@@ -73,6 +73,7 @@ import (
 	botRepo "github.com/VDV001/estimate-pro/backend/internal/modules/bot/repository"
 	botTelegram "github.com/VDV001/estimate-pro/backend/internal/modules/bot/telegram"
 	botUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/bot/usecase"
+	sharedgenerator "github.com/VDV001/estimate-pro/backend/internal/shared/generator"
 	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
 	sharedreader "github.com/VDV001/estimate-pro/backend/internal/shared/reader"
 	sharedsecurity "github.com/VDV001/estimate-pro/backend/internal/shared/security"
@@ -189,6 +190,31 @@ func main() {
 	projectH := projectHandler.New(projectUC, memberUC, workspaceUC)
 	documentH := documentHandler.New(documentUC)
 	estimationH := estimationHandler.New(estimationUC, &memberRoleAdapter{memberRepo})
+
+	// Document generator (PR-B4) — Composite bundles MD / PDF
+	// generators, DOCX template filler, and Gotenberg converter.
+	// Built unconditionally (small alloc, zero runtime cost) so the
+	// generator is ready for the PR-B7 report use case; converter
+	// is wired only when GOTENBERG_URL is configured.
+	pdfGenerator, err := sharedgenerator.NewPDFGenerator()
+	if err != nil {
+		slog.Error("failed to construct PDF generator", "error", err)
+		os.Exit(1)
+	}
+	var gotenbergConverter sharedgenerator.Converter
+	if cfg.Generator.GotenbergURL != "" {
+		gotenbergConverter = sharedgenerator.NewGotenbergConverter(
+			cfg.Generator.GotenbergURL,
+			cfg.Generator.GotenbergTimeout,
+		)
+	}
+	documentGenerator := sharedgenerator.NewComposite(
+		sharedgenerator.NewMDRenderer(),
+		pdfGenerator,
+		sharedgenerator.NewDOCXTemplateFiller(),
+		gotenbergConverter,
+	)
+	_ = documentGenerator // PR-B7 wires this into the report use case.
 
 	// Extractor module (PR-B Document Pipeline) — gated behind the
 	// FEATURE_DOCUMENT_PIPELINE_ENABLED flag so a fresh deploy stays

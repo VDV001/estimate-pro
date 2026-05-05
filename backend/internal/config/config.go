@@ -23,6 +23,7 @@ type Config struct {
 	LLM             LLMDefaultConfig
 	FrontendBaseURL string
 	Extractor       ExtractorConfig
+	Generator       GeneratorConfig
 }
 
 // ExtractorConfig gates the document-pipeline module (PR-B series).
@@ -31,6 +32,17 @@ type Config struct {
 type ExtractorConfig struct {
 	Enabled  bool
 	MaxBytes int64
+}
+
+// GeneratorConfig holds the document-generator wiring (PR-B4).
+// GotenbergURL points at the sidecar (defaults to the docker-compose
+// service); GotenbergTimeout caps every conversion round-trip.
+// When the URL is empty the converter is left nil — local-dev
+// without the sidecar still gets working MD/PDF/DOCX-fill paths
+// from shared/generator.Composite.
+type GeneratorConfig struct {
+	GotenbergURL     string
+	GotenbergTimeout time.Duration
 }
 
 type S3Config struct {
@@ -120,6 +132,10 @@ func Load() Config {
 		Extractor: ExtractorConfig{
 			Enabled:  os.Getenv("FEATURE_DOCUMENT_PIPELINE_ENABLED") == "true",
 			MaxBytes: parseInt64(os.Getenv("EXTRACTOR_MAX_DOCUMENT_BYTES"), 50<<20),
+		},
+		Generator: GeneratorConfig{
+			GotenbergURL:     os.Getenv("GOTENBERG_URL"),
+			GotenbergTimeout: parseDuration(os.Getenv("GOTENBERG_TIMEOUT"), 5*time.Minute),
 		},
 	}
 }
