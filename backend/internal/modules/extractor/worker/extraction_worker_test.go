@@ -6,12 +6,14 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/extractor/domain"
 	"github.com/VDV001/estimate-pro/backend/internal/modules/extractor/worker"
 	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
+	sharedreader "github.com/VDV001/estimate-pro/backend/internal/shared/reader"
 )
 
 // fakeStore implements worker.ExtractionStore for unit tests; only
@@ -623,6 +625,68 @@ func TestProcess_PipelineErrors_MarkFailed(t *testing.T) {
 			}
 			if store.saveCallCount != 0 {
 				t.Fatalf("expected zero SaveTasks calls when pipeline failed before persist, got %d", store.saveCallCount)
+			}
+		})
+	}
+}
+
+// TestProcess_PipelineErrors_ReasonMapping pins the operator-facing
+// failure-reason contract: when the pipeline error wraps a sentinel
+// the worker recognises (encrypted file, LLM HTTP), the audit
+// ErrorMessage carries the specific reason rather than the generic
+// pipelineFailureReason. Operators reading the extraction_events row
+// can triage without diving into structured logs for the common cases.
+func TestProcess_PipelineErrors_ReasonMapping(t *testing.T) {
+	cases := []struct {
+		name       string
+		setup      func(*capturingSource, *capturingReader, *capturingCompleter)
+		wantReason string
+	}{
+		{
+			name: "encrypted_pdf",
+			setup: func(s *capturingSource, r *capturingReader, _ *capturingCompleter) {
+				s.respData = []byte("PDF-encrypted-bytes")
+				s.respName = "spec.pdf"
+				r.respErr = fmt.Errorf("pdf %q: %w", "spec.pdf", sharedreader.ErrEncryptedFile)
+			},
+			wantReason: worker.ReasonEncryptedFile,
+		},
+		{
+			name: "llm_http_error",
+			setup: func(s *capturingSource, r *capturingReader, c *capturingCompleter) {
+				s.respData = []byte("PDF-bytes")
+				s.respName = "spec.pdf"
+				r.respText = "doc text"
+				c.respErr = fmt.Errorf("provider call: %w", sharedllm.ErrLLMHTTP)
+			},
+			wantReason: worker.ReasonLLMService,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ext := pendingExtraction(t)
+			store := &fakeStore{got: ext}
+			source := &capturingSource{}
+			reader := &capturingReader{}
+			security := &capturingSecurity{verdict: false}
+			llm := &capturingCompleter{respText: `{"tasks":[]}`}
+			tc.setup(source, reader, llm)
+
+			w := worker.NewExtractionWorker(store, source, reader, llm, security)
+
+			if err := w.Process(context.Background(), worker.ExtractionArgs{ExtractionID: ext.ID}); err == nil {
+				t.Fatalf("expected non-nil error from %s case", tc.name)
+			}
+
+			if got := len(store.updateEvents); got != 2 {
+				t.Fatalf("expected 2 audit events (pending->processing, processing->failed), got %d", got)
+			}
+			if got := store.updateEvents[1].ErrorMessage; got != tc.wantReason {
+				t.Fatalf("audit ErrorMessage=%q, want %q", got, tc.wantReason)
+			}
+			if got := store.updateCalls[1].FailureReason; got != tc.wantReason {
+				t.Fatalf("ext.FailureReason=%q, want %q", got, tc.wantReason)
 			}
 		})
 	}
