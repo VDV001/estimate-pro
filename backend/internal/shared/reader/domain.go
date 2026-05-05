@@ -44,13 +44,14 @@ func ParseFileType(ext string) (FileType, error) {
 	}
 }
 
-// Sentinel errors. All four are returned by readers and the composite
-// dispatcher; consumers match via errors.Is. ErrEncryptedFile is
-// intentionally deferred to PR-B3 where worker integration provides
-// real encrypted-PDF fixtures (ADR-014: no dead sentinels).
+// Sentinel errors. All five are returned by readers and the composite
+// dispatcher; consumers match via errors.Is. ADR-014: every sentinel
+// has a real consumer-branch in the codebase and a test fixture that
+// drives it.
 var (
 	ErrEmptyContent      = errors.New("reader: empty content")
 	ErrUnsupportedFormat = errors.New("reader: unsupported format")
 	ErrCorruptedFile     = errors.New("reader: corrupted file")
 	ErrFileTooLarge      = errors.New("reader: file too large")
+	ErrEncryptedFile     = errors.New("reader: encrypted file (password protected)")
 )
