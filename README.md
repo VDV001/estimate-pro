@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.13.0-blue)
+![Version](https://img.shields.io/badge/version-0.14.0-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,16 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.13.0`**
+**Текущая версия: `0.14.0`**
 
 ### Changelog
+
+#### v0.14.0 (2026-05-05)
+- feat(report): новый module `internal/modules/report/` — orchestrates project + aggregated PERT view → `GenerationInput` → render через `shared/generator`. HTTP `GET /api/v1/projects/{id}/report?format=pdf|md|docx` (default `pdf`); ownership middleware enforce'ится на project-membership. 4xx mapping: invalid format → 400, empty aggregation → 409.
+- feat(shared/generator): `DOCXRenderer` from-scratch — emits Office Open XML zip без template ([Content_Types].xml + _rels/.rels + word/document.xml + word/_rels/document.xml.rels). `Composite.Generate` switch расширен на `FormatDOCX`. `NewComposite` signature: 4 → 5 args (added `docxRender Generator`).
+- feat(bot): `IntentRenderReport` + `domain.Reporter` interface — handler returns deeplink в frontend report endpoint. Composition adapter `botReporterAdapter` building `cfg.FrontendBaseURL + /dashboard/projects/{id}?download=report&format=pdf`. Three new UI strings: `AskProjectForReport`, `ReportUnavailable`, `ReportReady(url, format)`. `NewIntentExecutor` + `bot/usecase.New` signatures расширены `Reporter` arg.
+- feat(frontend/report): `features/report/api.ts` (downloadReport via blob + Content-Disposition) + `DownloadReportButton` (shadcn dropdown с тремя форматами) — mounted в `AggregatedView` рядом с заголовком. i18n keys `report.download/downloading/error` (ru+en).
+- chore(release): bump v0.13.0 → v0.14.0 + closes #7 umbrella; PR-B7 closes PR-B series 7/7.
 
 #### v0.13.0 (2026-05-04)
 - refactor(llm): провайдерные адаптеры (Claude/OpenAI/Grok/Ollama) вынесены из `bot/llm` в новый shared-пакет `internal/shared/llm`. Два интерфейса — `IntentParser` (raw JSON для bot) и `Completer` (generic structured-completion для будущего extractor) — один adapter struct на провайдер реализует оба. `TokenUsage` value object с `NewTokenUsage(prompt, completion)` (clamps + recomputes Total) и `Add` для агрегации между LLM-вызовами.
