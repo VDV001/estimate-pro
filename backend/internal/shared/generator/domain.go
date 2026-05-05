@@ -74,11 +74,24 @@ type TemplateFiller interface {
 	Fill(ctx context.Context, template []byte, params map[string]string) ([]byte, error)
 }
 
+// Converter renders one document format into another by delegating
+// to an external service (Gotenberg sidecar). The contract is
+// bytes-in / bytes-out; the filename hint lets the engine pick the
+// correct input parser when the bytes alone are ambiguous (DOCX
+// vs ODT vs RTF). Distinct from Generator (which builds from
+// structured input) and TemplateFiller (which substitutes into a
+// template).
+type Converter interface {
+	Convert(ctx context.Context, input []byte, filename string) ([]byte, error)
+}
+
 // Sentinel errors. ADR-014 — every sentinel ships with a consumer
 // branch that returns it. Tests in this package supply the consumer
 // for the input-validation slices; the production consumer is the
 // PR-B7 report use case.
 var (
-	ErrEmptyTemplate   = errors.New("generator: template is empty")
-	ErrInvalidTemplate = errors.New("generator: template is not a valid DOCX (zip parse failed)")
+	ErrEmptyTemplate          = errors.New("generator: template is empty")
+	ErrInvalidTemplate        = errors.New("generator: template is not a valid DOCX (zip parse failed)")
+	ErrGotenbergUnavailable   = errors.New("generator: gotenberg service unavailable")
+	ErrInvalidConversionInput = errors.New("generator: gotenberg rejected conversion input")
 )
