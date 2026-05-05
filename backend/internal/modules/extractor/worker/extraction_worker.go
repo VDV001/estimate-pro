@@ -15,12 +15,14 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/extractor/domain"
 	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
+	sharedreader "github.com/VDV001/estimate-pro/backend/internal/shared/reader"
 )
 
 // ExtractionArgs is the JSON payload enqueued onto the river queue
@@ -130,6 +132,32 @@ func buildLLMPrompt(text string) (system, user string) {
 // for the originating sentinel.
 const pipelineFailureReason = "pipeline error"
 
+// ReasonEncryptedFile / ReasonLLMService are the operator-facing
+// failure reasons recorded on the audit event when the underlying
+// pipeline error wraps a known sentinel. Exposed as exported
+// constants because the contract is shared with operators reading
+// extraction_events rows and any future dashboard.
+const (
+	ReasonEncryptedFile = "encrypted file (password protected)"
+	ReasonLLMService    = "LLM service error"
+)
+
+// reasonForPipelineError maps a pipeline error onto the most
+// specific operator-facing reason available, falling back to the
+// generic pipelineFailureReason when no sentinel match is found.
+// Adding a new mapping is a one-line change here plus a sentinel
+// branch in shared/{reader,llm}.
+func reasonForPipelineError(err error) string {
+	switch {
+	case errors.Is(err, sharedreader.ErrEncryptedFile):
+		return ReasonEncryptedFile
+	case errors.Is(err, sharedllm.ErrLLMHTTP):
+		return ReasonLLMService
+	default:
+		return pipelineFailureReason
+	}
+}
+
 func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) error {
 	ext, err := w.store.GetByID(ctx, args.ExtractionID)
 	if err != nil {
@@ -149,7 +177,7 @@ func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) err
 		// worker returns. River retry semantics depend on the audit
 		// trail being in sync with the lifecycle.
 		if ext.Status == domain.StatusProcessing {
-			if markErr := w.markFailed(ctx, ext, pipelineFailureReason); markErr != nil {
+			if markErr := w.markFailed(ctx, ext, reasonForPipelineError(err)); markErr != nil {
 				return fmt.Errorf("worker.Process recover MarkFailed for extraction %q: %w (original: %v)", ext.ID, markErr, err)
 			}
 		}
