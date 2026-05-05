@@ -30,8 +30,13 @@ func NewReporter(projects ProjectMetadataReader, aggregator EstimationAggregator
 }
 
 // RenderEstimationReport produces the rendered report bytes for the
-// given project and format.
+// given project and format. Validation order: format first (cheap,
+// no I/O), then project, then aggregation. The aggregation must be
+// non-empty — an empty PERT view has nothing to render.
 func (r *Reporter) RenderEstimationReport(ctx context.Context, projectID string, format reportdomain.Format) ([]byte, error) {
+	if !format.IsValid() {
+		return nil, fmt.Errorf("%w: %q", reportdomain.ErrInvalidFormat, format)
+	}
 	project, err := r.projects.GetByID(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("report: load project: %w", err)
@@ -39,6 +44,9 @@ func (r *Reporter) RenderEstimationReport(ctx context.Context, projectID string,
 	aggregated, err := r.aggregator.GetAggregated(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("report: load aggregated estimation: %w", err)
+	}
+	if len(aggregated.Items) == 0 {
+		return nil, fmt.Errorf("%w: project %s", reportdomain.ErrEmptyEstimation, projectID)
 	}
 
 	input := buildGenerationInput(project.Name, aggregated)
