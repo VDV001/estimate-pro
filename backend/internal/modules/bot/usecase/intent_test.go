@@ -108,10 +108,10 @@ func (m *mockDocumentManager) Upload(ctx context.Context, projectID, title, file
 	return "", "", nil
 }
 
-// mockExtractionTrigger captures RequestExtraction calls for assertion
-// in PR-B5 file-upload tests. Default returns "extraction-1" + nil so
-// tests that exercise the post-upload happy path don't need to set
-// the function.
+// mockExtractionTrigger satisfies bot/domain.Extractor in the
+// black-box test package. Intent tests don't exercise GetExtraction
+// today; the method exists only to keep the interface assignment
+// honest.
 type mockExtractionTrigger struct {
 	requestFn func(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (string, error)
 }
@@ -121,6 +121,10 @@ func (m *mockExtractionTrigger) RequestExtraction(ctx context.Context, documentI
 		return m.requestFn(ctx, documentID, documentVersionID, fileSize, actor)
 	}
 	return "extraction-1", nil
+}
+
+func (*mockExtractionTrigger) GetExtraction(_ context.Context, _ string) (domain.ExtractionResult, error) {
+	return domain.ExtractionResult{Status: domain.ExtractionStatusCompleted}, nil
 }
 
 type mockPasswordResetManager struct {

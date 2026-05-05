@@ -117,8 +117,70 @@ type DocumentManager interface {
 // uploaded document version. The bot calls it after a successful
 // upload; the actual processing happens out-of-band on the river
 // queue (see modules/extractor/worker). Returned extractionID lets
-// the caller poll the status (PR-B5 pair 3) or surface a deep link
-// to the user.
+// the caller poll status via Extractor.GetExtraction.
 type ExtractionTrigger interface {
 	RequestExtraction(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (extractionID string, err error)
+}
+
+// Extractor is the composite contract the bot consumes — a single
+// dependency satisfying both write (RequestExtraction) and read
+// (GetExtraction) sides. Composition root in main.go provides one
+// adapter that wraps the extractor module's use case.
+type Extractor interface {
+	ExtractionTrigger
+	ExtractionStatusReader
+}
+
+// ExtractionStatus mirrors the extractor module's lifecycle states
+// without leaking that module's domain types into bot. The bot
+// polls until the status reaches a terminal value (completed /
+// failed / cancelled).
+type ExtractionStatus string
+
+const (
+	ExtractionStatusPending    ExtractionStatus = "pending"
+	ExtractionStatusProcessing ExtractionStatus = "processing"
+	ExtractionStatusCompleted  ExtractionStatus = "completed"
+	ExtractionStatusFailed     ExtractionStatus = "failed"
+	ExtractionStatusCancelled  ExtractionStatus = "cancelled"
+)
+
+// IsTerminal reports whether the status will not change without a
+// new explicit transition (retry / cancel by user). The polling
+// loop in handleFileUpload exits as soon as it sees a terminal
+// status — no point polling past completed / failed / cancelled.
+func (s ExtractionStatus) IsTerminal() bool {
+	switch s {
+	case ExtractionStatusCompleted, ExtractionStatusFailed, ExtractionStatusCancelled:
+		return true
+	}
+	return false
+}
+
+// ExtractedTaskSummary is the bot-side projection of an extracted
+// task. Kept as a DTO with public fields — no invariants enforced
+// here, the producer (extractor module) already validated them.
+type ExtractedTaskSummary struct {
+	Name         string
+	EstimateHint string
+}
+
+// ExtractionResult is what the bot needs to render a follow-up
+// message after polling: the current status, the extracted tasks
+// (empty unless completed), and a failure reason (empty unless
+// failed). Adapters in main.go map extractor module's domain types
+// onto this shape so the bot stays free of cross-module imports.
+type ExtractionResult struct {
+	Status        ExtractionStatus
+	Tasks         []ExtractedTaskSummary
+	FailureReason string
+}
+
+// ExtractionStatusReader fetches the current state of a previously
+// requested extraction. Distinct from ExtractionTrigger so each
+// interface stays focused (Interface Segregation) — composition
+// root in main.go provides one adapter satisfying both via the
+// extractor use case.
+type ExtractionStatusReader interface {
+	GetExtraction(ctx context.Context, extractionID string) (ExtractionResult, error)
 }

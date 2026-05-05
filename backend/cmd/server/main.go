@@ -222,7 +222,7 @@ func main() {
 	// HTTP server is wired (see below); Stop is called on shutdown.
 	var extractorH *extractorHandler.Handler
 	var riverClient *river.Client[pgx.Tx]
-	var botExtraction botDomain.ExtractionTrigger
+	var botExtraction botDomain.Extractor
 	if cfg.Extractor.Enabled {
 		extractorRepository := extractorRepo.NewPostgresExtractionRepository(pool)
 
@@ -653,6 +653,28 @@ func (a *botExtractionAdapter) RequestExtraction(ctx context.Context, documentID
 		return "", err
 	}
 	return ext.ID, nil
+}
+
+// GetExtraction maps the extractor module's domain status / tasks /
+// failure_reason onto the bot-side projection so the bot module
+// stays free of cross-module imports.
+func (a *botExtractionAdapter) GetExtraction(ctx context.Context, extractionID string) (botDomain.ExtractionResult, error) {
+	ext, _, err := a.extractorUC.GetExtraction(ctx, extractionID)
+	if err != nil {
+		return botDomain.ExtractionResult{}, err
+	}
+	tasks := make([]botDomain.ExtractedTaskSummary, len(ext.Tasks))
+	for i, t := range ext.Tasks {
+		tasks[i] = botDomain.ExtractedTaskSummary{
+			Name:         t.Name,
+			EstimateHint: t.EstimateHint,
+		}
+	}
+	return botDomain.ExtractionResult{
+		Status:        botDomain.ExtractionStatus(ext.Status),
+		Tasks:         tasks,
+		FailureReason: ext.FailureReason,
+	}, nil
 }
 
 // roleGetterAdapter adapts MemberRepository.GetRole to middleware.RoleGetter interface (returns string).

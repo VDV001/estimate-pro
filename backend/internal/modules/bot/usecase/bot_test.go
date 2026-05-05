@@ -242,11 +242,17 @@ func (m *mockDocumentManager) Upload(ctx context.Context, projectID, title, file
 	return "", "", nil
 }
 
-// mockExtractionTrigger captures RequestExtraction calls in PR-B5
-// post-upload tests. Default returns "extraction-1" + nil so test
-// cases that don't care about the value don't need to set requestFn.
+// mockExtractionTrigger satisfies bot/domain.Extractor — captures
+// RequestExtraction calls AND scripts GetExtraction polling
+// responses for PR-B5 file-upload tests. Default returns
+// "extraction-1" + nil for RequestExtraction; default GetExtraction
+// returns processing forever (timeout test). states slice scripts
+// "processing → processing → completed" without time.Sleep magic.
 type mockExtractionTrigger struct {
 	requestFn func(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (string, error)
+	states    []domain.ExtractionResult
+	getCalls  int
+	getErr    error
 }
 
 func (m *mockExtractionTrigger) RequestExtraction(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (string, error) {
@@ -254,6 +260,20 @@ func (m *mockExtractionTrigger) RequestExtraction(ctx context.Context, documentI
 		return m.requestFn(ctx, documentID, documentVersionID, fileSize, actor)
 	}
 	return "extraction-1", nil
+}
+
+func (m *mockExtractionTrigger) GetExtraction(_ context.Context, _ string) (domain.ExtractionResult, error) {
+	if m.getErr != nil {
+		return domain.ExtractionResult{}, m.getErr
+	}
+	defer func() { m.getCalls++ }()
+	if m.getCalls < len(m.states) {
+		return m.states[m.getCalls], nil
+	}
+	if len(m.states) == 0 {
+		return domain.ExtractionResult{Status: domain.ExtractionStatusProcessing}, nil
+	}
+	return m.states[len(m.states)-1], nil
 }
 
 // --- Helper to build a test BotUsecase ---
@@ -2232,6 +2252,180 @@ func TestProcessMessage_FileUpload_TriggersExtraction(t *testing.T) {
 	}
 	if uploadedTitle == "" {
 		t.Errorf("documents.Upload was not called (uploadedTitle empty)")
+	}
+}
+
+// TestProcessMessage_FileUpload_PollsAndRepliesTasks pins the
+// happy-path follow-up: after the extraction is enqueued, the bot
+// polls until terminal status, then sends a markdown reply with
+// the extracted tasks formatted as bullet points. Failure /
+// timeout paths covered in adjacent table-driven test below.
+func TestProcessMessage_FileUpload_PollsAndRepliesTasks(t *testing.T) {
+	deps := newTestBotDeps()
+
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	stateJSON, _ := json.Marshal(map[string]string{"project_id": "proj-1"})
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return &domain.BotSession{
+			ID:        "sess-1",
+			UserID:    "user-1",
+			ChatID:    "100",
+			Intent:    domain.IntentUploadDocument,
+			State:     stateJSON,
+			ExpiresAt: time.Now().Add(10 * time.Minute),
+		}, nil
+	}
+
+	deps.tgClient.GetFileURLFn = func(_ context.Context, _ string) (string, error) {
+		return "https://api.telegram.org/file/bot/spec.pdf", nil
+	}
+	deps.tgClient.DownloadFileFn = func(_ context.Context, _ string) ([]byte, error) {
+		return []byte("PDF-bytes"), nil
+	}
+	deps.tgClient.SetReactionFn = func(_ context.Context, _ string, _ int64, _ string) error { return nil }
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, _ string) error { return nil }
+
+	// Capture every markdown reply.
+	var markdowns []string
+	deps.tgClient.SendMarkdownFn = func(_ context.Context, _, text string) error {
+		markdowns = append(markdowns, text)
+		return nil
+	}
+
+	deps.documents.uploadFn = func(_ context.Context, _, _, _ string, _ int64, _ string, _ io.Reader, _ string) (string, string, error) {
+		return "doc-42", "ver-7", nil
+	}
+
+	// Polling: first call processing, second call completed with two tasks.
+	deps.extractions.states = []domain.ExtractionResult{
+		{Status: domain.ExtractionStatusProcessing},
+		{Status: domain.ExtractionStatusCompleted, Tasks: []domain.ExtractedTaskSummary{
+			{Name: "Add login form", EstimateHint: "4h"},
+			{Name: "Wire API client", EstimateHint: "2h"},
+		}},
+	}
+
+	uc := deps.build()
+	// Tighten polling for the test to keep it fast — 10ms interval,
+	// 5 attempts max. Production defaults are configured at boot.
+	uc.SetExtractionPollingForTest(10*time.Millisecond, 5)
+
+	if err := uc.ProcessMessage(t.Context(), &tg.Update{
+		Message: &tg.Message{
+			From:      &tg.User{ID: 12345},
+			Chat:      &tg.Chat{ID: 100, Type: "private"},
+			MessageID: 42,
+			Document: &tg.Document{
+				FileID:   "file-1",
+				FileName: "spec.pdf",
+				MimeType: "application/pdf",
+				FileSize: 4096,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+
+	if deps.extractions.getCalls < 2 {
+		t.Errorf("GetExtraction calls=%d, want >= 2", deps.extractions.getCalls)
+	}
+
+	// Look for a markdown reply that contains both task names.
+	var tasksReply string
+	for _, m := range markdowns {
+		if strings.Contains(m, "Add login form") && strings.Contains(m, "Wire API client") {
+			tasksReply = m
+			break
+		}
+	}
+	if tasksReply == "" {
+		t.Fatalf("no markdown reply contained both extracted tasks; got: %v", markdowns)
+	}
+}
+
+// TestProcessMessage_FileUpload_PollFailureAndTimeout covers the
+// non-happy paths: extraction fails or polling exhausts attempts.
+// Both must surface a user-friendly Russian message rather than
+// staying silent (silence after upload reads as "bot died").
+func TestProcessMessage_FileUpload_PollFailureAndTimeout(t *testing.T) {
+	cases := []struct {
+		name         string
+		states       []domain.ExtractionResult
+		wantContains string
+	}{
+		{
+			name: "failed_with_reason",
+			states: []domain.ExtractionResult{
+				{Status: domain.ExtractionStatusFailed, FailureReason: "encrypted file (password protected)"},
+			},
+			wantContains: "не удалось",
+		},
+		{
+			name: "still_processing_at_timeout",
+			states: []domain.ExtractionResult{
+				{Status: domain.ExtractionStatusProcessing},
+			},
+			wantContains: "обработке",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			deps := newTestBotDeps()
+			deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+				return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+			}
+			stateJSON, _ := json.Marshal(map[string]string{"project_id": "proj-1"})
+			deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+				return &domain.BotSession{ID: "s", UserID: "user-1", ChatID: "100", Intent: domain.IntentUploadDocument, State: stateJSON, ExpiresAt: time.Now().Add(10 * time.Minute)}, nil
+			}
+			deps.tgClient.GetFileURLFn = func(_ context.Context, _ string) (string, error) {
+				return "https://t/file", nil
+			}
+			deps.tgClient.DownloadFileFn = func(_ context.Context, _ string) ([]byte, error) {
+				return []byte("PDF"), nil
+			}
+			deps.tgClient.SetReactionFn = func(_ context.Context, _ string, _ int64, _ string) error { return nil }
+			deps.tgClient.SendMessageFn = func(_ context.Context, _, _ string) error { return nil }
+
+			var markdowns []string
+			deps.tgClient.SendMarkdownFn = func(_ context.Context, _, text string) error {
+				markdowns = append(markdowns, text)
+				return nil
+			}
+
+			deps.documents.uploadFn = func(_ context.Context, _, _, _ string, _ int64, _ string, _ io.Reader, _ string) (string, string, error) {
+				return "d", "v", nil
+			}
+			deps.extractions.states = tc.states
+
+			uc := deps.build()
+			uc.SetExtractionPollingForTest(5*time.Millisecond, 3)
+
+			if err := uc.ProcessMessage(t.Context(), &tg.Update{
+				Message: &tg.Message{
+					From:      &tg.User{ID: 12345},
+					Chat:      &tg.Chat{ID: 100, Type: "private"},
+					MessageID: 42,
+					Document: &tg.Document{
+						FileID:   "f",
+						FileName: "spec.pdf",
+						MimeType: "application/pdf",
+						FileSize: 1024,
+					},
+				},
+			}); err != nil {
+				t.Fatalf("ProcessMessage: %v", err)
+			}
+
+			joined := strings.Join(markdowns, "\n---\n")
+			if !strings.Contains(strings.ToLower(joined), tc.wantContains) {
+				t.Fatalf("expected markdown to contain %q, got: %s", tc.wantContains, joined)
+			}
+		})
 	}
 }
 

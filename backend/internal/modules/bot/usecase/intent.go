@@ -28,7 +28,7 @@ type IntentExecutor struct {
 	estimations domain.EstimationManager
 	documents   domain.DocumentManager
 	passwords   domain.PasswordResetManager
-	extractions domain.ExtractionTrigger
+	extractions domain.Extractor
 }
 
 // NewIntentExecutor creates a new IntentExecutor. extractions may be
@@ -40,7 +40,7 @@ func NewIntentExecutor(
 	estimations domain.EstimationManager,
 	documents domain.DocumentManager,
 	passwords domain.PasswordResetManager,
-	extractions domain.ExtractionTrigger,
+	extractions domain.Extractor,
 ) *IntentExecutor {
 	return &IntentExecutor{
 		projects:    projects,
