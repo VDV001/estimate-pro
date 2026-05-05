@@ -29,11 +29,13 @@ type IntentExecutor struct {
 	documents   domain.DocumentManager
 	passwords   domain.PasswordResetManager
 	extractions domain.Extractor
+	reporter    domain.Reporter
 }
 
-// NewIntentExecutor creates a new IntentExecutor. extractions may be
-// nil in tests / dev environments where the extractor module is not
-// wired — the post-upload trigger short-circuits cleanly in that case.
+// NewIntentExecutor creates a new IntentExecutor. extractions and
+// reporter may be nil in tests / dev environments where those modules
+// are not wired — the corresponding intent handlers short-circuit
+// cleanly in that case.
 func NewIntentExecutor(
 	projects domain.ProjectManager,
 	members domain.MemberManager,
@@ -41,6 +43,7 @@ func NewIntentExecutor(
 	documents domain.DocumentManager,
 	passwords domain.PasswordResetManager,
 	extractions domain.Extractor,
+	reporter domain.Reporter,
 ) *IntentExecutor {
 	return &IntentExecutor{
 		projects:    projects,
@@ -49,6 +52,7 @@ func NewIntentExecutor(
 		documents:   documents,
 		passwords:   passwords,
 		extractions: extractions,
+		reporter:    reporter,
 	}
 }
 

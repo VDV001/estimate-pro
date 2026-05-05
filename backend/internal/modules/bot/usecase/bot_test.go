@@ -276,6 +276,18 @@ func (m *mockExtractionTrigger) GetExtraction(_ context.Context, _ string) (doma
 	return m.states[len(m.states)-1], nil
 }
 
+// mockReporter satisfies bot/domain.Reporter for white-box bot tests.
+type mockReporter struct {
+	buildFn func(ctx context.Context, projectID, format string) (string, error)
+}
+
+func (m *mockReporter) BuildReportURL(ctx context.Context, projectID, format string) (string, error) {
+	if m.buildFn != nil {
+		return m.buildFn(ctx, projectID, format)
+	}
+	return "https://app.example/projects/" + projectID + "/report?format=" + format, nil
+}
+
 // --- Helper to build a test BotUsecase ---
 
 type mockMemoryRepo struct{}
@@ -318,6 +330,7 @@ type testBotDeps struct {
 	estimations  *mockEstimationManager
 	documents    *mockDocumentManager
 	extractions  *mockExtractionTrigger
+	reporter     *mockReporter
 }
 
 func newTestBotDeps() *testBotDeps {
@@ -335,6 +348,7 @@ func newTestBotDeps() *testBotDeps {
 		estimations:  &mockEstimationManager{},
 		documents:    &mockDocumentManager{},
 		extractions:  &mockExtractionTrigger{},
+		reporter:     &mockReporter{},
 	}
 }
 
@@ -360,6 +374,7 @@ func (d *testBotDeps) build() *BotUsecase {
 		d.documents,
 		nil, // passwords (PasswordResetManager)
 		d.extractions,
+		d.reporter,
 	)
 }
 
@@ -2043,6 +2058,7 @@ func TestProcessMessage_ResolveLLMParser_NoConfig(t *testing.T) {
 		deps.documents,
 		nil,
 		deps.extractions,
+		deps.reporter,
 	)
 
 	var sentText string
