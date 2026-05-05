@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +21,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/VDV001/estimate-pro/backend/internal/config"
 	"github.com/VDV001/estimate-pro/backend/internal/infra/postgres"
@@ -51,6 +56,7 @@ import (
 	extractorHandler "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/handler"
 	extractorRepo "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/repository"
 	extractorUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/usecase"
+	extractorWorker "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/worker"
 
 	notifyModule "github.com/VDV001/estimate-pro/backend/internal/modules/notify"
 	notifyChannel "github.com/VDV001/estimate-pro/backend/internal/modules/notify/channel"
@@ -67,6 +73,8 @@ import (
 	botTelegram "github.com/VDV001/estimate-pro/backend/internal/modules/bot/telegram"
 	botUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/bot/usecase"
 	sharedllm "github.com/VDV001/estimate-pro/backend/internal/shared/llm"
+	sharedreader "github.com/VDV001/estimate-pro/backend/internal/shared/reader"
+	sharedsecurity "github.com/VDV001/estimate-pro/backend/internal/shared/security"
 
 	"github.com/VDV001/estimate-pro/backend/internal/infra/composio"
 )
@@ -183,12 +191,58 @@ func main() {
 
 	// Extractor module (PR-B Document Pipeline) — gated behind the
 	// FEATURE_DOCUMENT_PIPELINE_ENABLED flag so a fresh deploy stays
-	// dormant until ops opts in. Worker integration + LLM call land
-	// in PR-B3.
+	// dormant until ops opts in. River client is started after the
+	// HTTP server is wired (see below); Stop is called on shutdown.
 	var extractorH *extractorHandler.Handler
+	var riverClient *river.Client[pgx.Tx]
 	if cfg.Extractor.Enabled {
 		extractorRepository := extractorRepo.NewPostgresExtractionRepository(pool)
-		extractorUC := extractorUsecase.NewExtractor(extractorRepository, cfg.Extractor.MaxBytes, nil /* river enqueuer wired below */)
+
+		readerComposite := sharedreader.NewComposite(
+			cfg.Extractor.MaxBytes,
+			sharedreader.NewPDFReader(),
+			sharedreader.NewDOCXReader(),
+			sharedreader.NewMDReader(),
+			sharedreader.NewTXTReader(),
+			sharedreader.NewCSVReader(),
+			sharedreader.NewXLSXReader(),
+		)
+
+		extractorCompleter := buildEnvFormatterCompleter(botUsecase.EnvLLMConfig{
+			Provider: cfg.LLM.Provider,
+			APIKey:   cfg.LLM.APIKey,
+			Model:    cfg.LLM.Model,
+			BaseURL:  cfg.LLM.BaseURL,
+		})
+
+		docSource := &documentSourceAdapter{versionRepo: versionRepo, fileStorage: fileStorage}
+		secChecker := &securityCheckerAdapter{}
+
+		extractorWorkerInstance := extractorWorker.NewExtractionWorker(
+			extractorRepository,
+			docSource,
+			readerComposite,
+			extractorCompleter,
+			secChecker,
+		)
+
+		riverWorkers := river.NewWorkers()
+		river.AddWorker(riverWorkers, &riverExtractionWorkerAdapter{inner: extractorWorkerInstance})
+
+		var riverErr error
+		riverClient, riverErr = river.NewClient(riverpgxv5.New(pool), &river.Config{
+			Queues:      map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 5}},
+			Workers:     riverWorkers,
+			MaxAttempts: 3,
+			RetryPolicy: &extractionRetryPolicy{},
+		})
+		if riverErr != nil {
+			slog.Error("failed to create river client", "error", riverErr)
+			os.Exit(1)
+		}
+
+		enqueuer := &riverJobEnqueuerAdapter{client: riverClient}
+		extractorUC := extractorUsecase.NewExtractor(extractorRepository, cfg.Extractor.MaxBytes, enqueuer)
 		extractorH = extractorHandler.New(extractorUC)
 	}
 
@@ -288,6 +342,14 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	if riverClient != nil {
+		if err := riverClient.Start(ctx); err != nil {
+			slog.Error("failed to start river client", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("river client started")
+	}
+
 	go func() {
 		slog.Info("starting server", "port", cfg.ServerPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -299,8 +361,16 @@ func main() {
 	<-ctx.Done()
 	slog.Info("shutting down server...")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	if riverClient != nil {
+		if err := riverClient.Stop(shutdownCtx); err != nil {
+			slog.Error("river client stop error", "error", err)
+		} else {
+			slog.Info("river client stopped")
+		}
+	}
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server shutdown error", "error", err)
@@ -630,4 +700,102 @@ func buildEnvFormatterCompleter(envLLM botUsecase.EnvLLMConfig) sharedllm.Comple
 		return nil
 	}
 	return parser
+}
+
+// ---------------------------------------------------------------------------
+// Extractor composition adapters (Document Pipeline, PR-B3)
+// All types live here to keep cross-module wiring quarantined to main.go.
+// ---------------------------------------------------------------------------
+
+// riverExtractionArgs is the on-wire job type for the extraction queue.
+// Kind() returns a stable string so river can match enqueued payloads to
+// this worker even across restarts.
+type riverExtractionArgs struct {
+	ExtractionID string `json:"extraction_id"`
+}
+
+func (riverExtractionArgs) Kind() string { return "extraction" }
+
+// riverExtractionWorkerAdapter bridges river.Worker[riverExtractionArgs] to
+// the domain-pure ExtractionWorker.Process method. The adapter lives in
+// main.go so the worker package stays free of river imports.
+type riverExtractionWorkerAdapter struct {
+	river.WorkerDefaults[riverExtractionArgs]
+	inner *extractorWorker.ExtractionWorker
+}
+
+func (a *riverExtractionWorkerAdapter) Work(ctx context.Context, job *river.Job[riverExtractionArgs]) error {
+	return a.inner.Process(ctx, extractorWorker.ExtractionArgs{ExtractionID: job.Args.ExtractionID})
+}
+
+// riverJobEnqueuerAdapter wraps a river.Client to satisfy usecase.JobEnqueuer.
+// InsertOpts sets MaxAttempts to 3 per ADR-016 §retry.
+type riverJobEnqueuerAdapter struct {
+	client *river.Client[pgx.Tx]
+}
+
+func (a *riverJobEnqueuerAdapter) Enqueue(ctx context.Context, extractionID string) error {
+	_, err := a.client.Insert(ctx, riverExtractionArgs{ExtractionID: extractionID}, &river.InsertOpts{
+		MaxAttempts: 3,
+	})
+	return err
+}
+
+// extractionRetryPolicy implements river.ClientRetryPolicy with the
+// fixed schedule from ADR-016 §retry: 5 min → 30 min → 3 hours.
+// Delay is selected by the number of prior errors (0-indexed), not the
+// attempt counter, to be consistent with river's snooze semantics.
+type extractionRetryPolicy struct{}
+
+func (extractionRetryPolicy) NextRetry(job *rivertype.JobRow) time.Time {
+	delays := []time.Duration{5 * time.Minute, 30 * time.Minute, 3 * time.Hour}
+	idx := len(job.Errors)
+	if idx >= len(delays) {
+		idx = len(delays) - 1
+	}
+	return time.Now().UTC().Add(delays[idx])
+}
+
+// securityCheckerAdapter wraps shared/security.IsPromptInjection behind the
+// worker.SecurityChecker port so the worker package has no direct dependency
+// on the shared/security package.
+type securityCheckerAdapter struct{}
+
+func (securityCheckerAdapter) IsPromptInjection(text string) bool {
+	return sharedsecurity.IsPromptInjection(text)
+}
+
+// documentSourceAdapter resolves a DocumentVersionID to its bytes and a
+// filename hint by composing the version repository (FileKey + FileType
+// lookup) with the S3 file storage client. The extractor module does not
+// know S3 keys, bucket names, or document module internals — all coupling
+// is quarantined here in the composition root.
+type documentSourceAdapter struct {
+	versionRepo interface {
+		GetByID(ctx context.Context, id string) (*documentDomain.DocumentVersion, error)
+	}
+	fileStorage interface {
+		Download(ctx context.Context, key string) (io.ReadCloser, error)
+	}
+}
+
+func (a *documentSourceAdapter) Fetch(ctx context.Context, documentVersionID string) ([]byte, string, error) {
+	version, err := a.versionRepo.GetByID(ctx, documentVersionID)
+	if err != nil {
+		return nil, "", fmt.Errorf("documentSource.Fetch: get version %q: %w", documentVersionID, err)
+	}
+	rc, err := a.fileStorage.Download(ctx, version.FileKey)
+	if err != nil {
+		return nil, "", fmt.Errorf("documentSource.Fetch: download %q: %w", version.FileKey, err)
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, "", fmt.Errorf("documentSource.Fetch: read %q: %w", version.FileKey, err)
+	}
+	filename := path.Base(version.FileKey)
+	if filename == "." || filename == "/" {
+		filename = "document." + string(version.FileType)
+	}
+	return data, filename, nil
 }
