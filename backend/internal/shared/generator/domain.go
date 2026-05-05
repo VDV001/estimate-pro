@@ -85,6 +85,20 @@ type Converter interface {
 	Convert(ctx context.Context, input []byte, filename string) ([]byte, error)
 }
 
+// Format names the supported output document type. Composite's
+// Generate dispatches on this value; any value outside the
+// constants below surfaces ErrUnsupportedFormat.
+type Format string
+
+// Supported formats. FormatDOCX is included only as a sentinel for
+// the unsupported-via-Generate path — DOCX flows through
+// Composite.FillTemplate which has a different input shape.
+const (
+	FormatMD   Format = "md"
+	FormatPDF  Format = "pdf"
+	FormatDOCX Format = "docx"
+)
+
 // Sentinel errors. ADR-014 — every sentinel ships with a consumer
 // branch that returns it. Tests in this package supply the consumer
 // for the input-validation slices; the production consumer is the
@@ -94,4 +108,5 @@ var (
 	ErrInvalidTemplate        = errors.New("generator: template is not a valid DOCX (zip parse failed)")
 	ErrGotenbergUnavailable   = errors.New("generator: gotenberg service unavailable")
 	ErrInvalidConversionInput = errors.New("generator: gotenberg rejected conversion input")
+	ErrUnsupportedFormat      = errors.New("generator: unsupported output format")
 )
