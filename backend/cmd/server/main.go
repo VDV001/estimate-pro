@@ -211,6 +211,7 @@ func main() {
 	documentGenerator := sharedgenerator.NewComposite(
 		sharedgenerator.NewMDRenderer(),
 		pdfGenerator,
+		sharedgenerator.NewDOCXRenderer(),
 		sharedgenerator.NewDOCXTemplateFiller(),
 		gotenbergConverter,
 	)

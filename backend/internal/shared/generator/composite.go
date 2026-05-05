@@ -21,30 +21,33 @@ import (
 // caller decides whether to retry or surface a configuration
 // error.
 type Composite struct {
-	md        Generator
-	pdf       Generator
-	docx      TemplateFiller
-	converter Converter
+	md         Generator
+	pdf        Generator
+	docxRender Generator
+	docx       TemplateFiller
+	converter  Converter
 }
 
-// NewComposite wires the four collaborators. md and pdf must be
-// non-nil — they have no fallback and a nil pointer here is a
-// programmer error that surfaces on the first Generate call.
+// NewComposite wires the five collaborators. md, pdf, and docxRender
+// must be non-nil — they have no fallback and a nil pointer here is
+// a programmer error that surfaces on the first Generate call.
 // The converter is allowed to be nil; see Composite docs.
-func NewComposite(md, pdf Generator, docx TemplateFiller, converter Converter) *Composite {
-	return &Composite{md: md, pdf: pdf, docx: docx, converter: converter}
+func NewComposite(md, pdf, docxRender Generator, docx TemplateFiller, converter Converter) *Composite {
+	return &Composite{md: md, pdf: pdf, docxRender: docxRender, docx: docx, converter: converter}
 }
 
-// Generate dispatches on the requested format. FormatMD / FormatPDF
-// land on the corresponding Generator; FormatDOCX (and any unknown
-// format) returns ErrUnsupportedFormat — DOCX flows through
-// FillTemplate, not Generate.
+// Generate dispatches on the requested format. FormatMD / FormatPDF /
+// FormatDOCX each land on their dedicated Generator. Unknown formats
+// surface ErrUnsupportedFormat. Template-based DOCX flows (filling
+// placeholders into a pre-existing .docx) stay on FillTemplate.
 func (c *Composite) Generate(ctx context.Context, format Format, input GenerationInput) ([]byte, error) {
 	switch format {
 	case FormatMD:
 		return c.md.Render(ctx, input)
 	case FormatPDF:
 		return c.pdf.Render(ctx, input)
+	case FormatDOCX:
+		return c.docxRender.Render(ctx, input)
 	default:
 		return nil, fmt.Errorf("composite: %w: %q", ErrUnsupportedFormat, format)
 	}
