@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -332,5 +333,69 @@ func TestHandler_ListByProject_OK(t *testing.T) {
 	}
 	if len(dtos) != 2 {
 		t.Errorf("len=%d, want 2", len(dtos))
+	}
+}
+
+// ---------- Ownership middleware ----------
+
+// fakeResolver is an ExtractionProjectResolver test double.
+type fakeResolver struct {
+	projectID string
+	err       error
+}
+
+func (f *fakeResolver) ProjectIDByExtraction(_ context.Context, _ string) (string, error) {
+	return f.projectID, f.err
+}
+
+var _ handler.ExtractionProjectResolver = (*fakeResolver)(nil)
+
+// fakeRoleGetter is a RoleGetter test double.
+type fakeRoleGetter struct {
+	allowed map[string]bool // keyed by userID
+}
+
+func (f *fakeRoleGetter) GetRole(_ context.Context, _, userID string) (string, error) {
+	if f.allowed[userID] {
+		return "member", nil
+	}
+	return "", errors.New("not a member")
+}
+
+func TestHandler_GetExtraction_OwnershipForbidden(t *testing.T) {
+	h, repo := newTestHandler(t)
+	resolver := &fakeResolver{projectID: "proj-1"}
+	roles := &fakeRoleGetter{allowed: map[string]bool{"other-user": true}}
+	h.WithOwnershipResolver(resolver, roles)
+
+	ext := mustNewExtraction(t, "doc-1", "ver-1")
+	repo.extractions[ext.ID] = ext
+
+	r := newRouter(h) // injects "user-test" which is NOT in allowed
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/extractions/"+ext.ID+"/", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status=%d, want 403 (non-member); body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandler_GetExtraction_OwnershipAllowed(t *testing.T) {
+	h, repo := newTestHandler(t)
+	resolver := &fakeResolver{projectID: "proj-1"}
+	roles := &fakeRoleGetter{allowed: map[string]bool{"user-test": true}}
+	h.WithOwnershipResolver(resolver, roles)
+
+	ext := mustNewExtraction(t, "doc-1", "ver-1")
+	repo.extractions[ext.ID] = ext
+
+	r := newRouter(h) // injects "user-test" which IS in allowed
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/extractions/"+ext.ID+"/", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status=%d, want 200 (member); body=%s", rr.Code, rr.Body.String())
 	}
 }
