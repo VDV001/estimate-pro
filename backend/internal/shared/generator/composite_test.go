@@ -59,15 +59,16 @@ func (r *recordingConverter) Convert(_ context.Context, in []byte, filename stri
 
 // TestComposite_GenerateDispatchesByFormat pins the routing
 // contract: FormatMD lands on the md generator, FormatPDF lands
-// on the pdf generator. Wrong-target generators must not be
-// touched (count assertions).
+// on the pdf generator, FormatDOCX lands on the docx-render
+// generator. Wrong-target generators must not be touched.
 func TestComposite_GenerateDispatchesByFormat(t *testing.T) {
 	md := &recordingGenerator{respBytes: []byte("# md")}
 	pdf := &recordingGenerator{respBytes: []byte("%PDF-1.4")}
+	docxRender := &recordingGenerator{respBytes: []byte("PK\x03\x04docx")}
 	docx := &recordingFiller{}
 	conv := &recordingConverter{}
 
-	c := generator.NewComposite(md, pdf, docx, conv)
+	c := generator.NewComposite(md, pdf, docxRender, docx, conv)
 	input := generator.GenerationInput{Title: "T"}
 
 	out, err := c.Generate(context.Background(), generator.FormatMD, input)
@@ -77,8 +78,8 @@ func TestComposite_GenerateDispatchesByFormat(t *testing.T) {
 	if string(out) != "# md" {
 		t.Errorf("md output=%q, want '# md'", out)
 	}
-	if md.calls != 1 || pdf.calls != 0 {
-		t.Errorf("md.calls=%d pdf.calls=%d, want 1/0", md.calls, pdf.calls)
+	if md.calls != 1 || pdf.calls != 0 || docxRender.calls != 0 {
+		t.Errorf("md=%d pdf=%d docx=%d, want 1/0/0", md.calls, pdf.calls, docxRender.calls)
 	}
 
 	out, err = c.Generate(context.Background(), generator.FormatPDF, input)
@@ -88,19 +89,33 @@ func TestComposite_GenerateDispatchesByFormat(t *testing.T) {
 	if string(out) != "%PDF-1.4" {
 		t.Errorf("pdf output=%q", out)
 	}
-	if md.calls != 1 || pdf.calls != 1 {
-		t.Errorf("md.calls=%d pdf.calls=%d, want 1/1", md.calls, pdf.calls)
+	if md.calls != 1 || pdf.calls != 1 || docxRender.calls != 0 {
+		t.Errorf("md=%d pdf=%d docx=%d, want 1/1/0", md.calls, pdf.calls, docxRender.calls)
+	}
+
+	out, err = c.Generate(context.Background(), generator.FormatDOCX, input)
+	if err != nil {
+		t.Fatalf("Generate(docx): %v", err)
+	}
+	if string(out) != "PK\x03\x04docx" {
+		t.Errorf("docx output=%q", out)
+	}
+	if md.calls != 1 || pdf.calls != 1 || docxRender.calls != 1 {
+		t.Errorf("md=%d pdf=%d docx=%d, want 1/1/1", md.calls, pdf.calls, docxRender.calls)
 	}
 }
 
 // TestComposite_GenerateUnsupportedFormat covers the failure
-// branch: DOCX (templated) and unknown formats surface
-// ErrUnsupportedFormat — DOCX does not match the structured-input
-// contract, the caller must use FillTemplate instead.
+// branch: an unknown format surfaces ErrUnsupportedFormat. DOCX
+// is no longer in the failure set — Pair B routes it through the
+// docx-render generator alongside MD/PDF.
 func TestComposite_GenerateUnsupportedFormat(t *testing.T) {
-	c := generator.NewComposite(&recordingGenerator{}, &recordingGenerator{}, &recordingFiller{}, &recordingConverter{})
+	c := generator.NewComposite(
+		&recordingGenerator{}, &recordingGenerator{},
+		&recordingGenerator{},
+		&recordingFiller{}, &recordingConverter{})
 
-	for _, f := range []generator.Format{generator.FormatDOCX, generator.Format("xls"), generator.Format("")} {
+	for _, f := range []generator.Format{generator.Format("xls"), generator.Format("")} {
 		_, err := c.Generate(context.Background(), f, generator.GenerationInput{})
 		if !errors.Is(err, generator.ErrUnsupportedFormat) {
 			t.Errorf("Generate(%q) err=%v, want errors.Is ErrUnsupportedFormat", f, err)
@@ -112,7 +127,7 @@ func TestComposite_GenerateUnsupportedFormat(t *testing.T) {
 // FillTemplate forwards verbatim to the DOCX filler.
 func TestComposite_FillTemplateDelegates(t *testing.T) {
 	docx := &recordingFiller{respBytes: []byte("FILLED-DOCX")}
-	c := generator.NewComposite(&recordingGenerator{}, &recordingGenerator{}, docx, &recordingConverter{})
+	c := generator.NewComposite(&recordingGenerator{}, &recordingGenerator{}, &recordingGenerator{}, docx, &recordingConverter{})
 
 	out, err := c.FillTemplate(context.Background(),
 		[]byte("TEMPLATE"),
@@ -134,7 +149,7 @@ func TestComposite_FillTemplateDelegates(t *testing.T) {
 // TestComposite_ConvertToPDFDelegates covers the converter path.
 func TestComposite_ConvertToPDFDelegates(t *testing.T) {
 	conv := &recordingConverter{respBytes: []byte("%PDF-CONVERTED")}
-	c := generator.NewComposite(&recordingGenerator{}, &recordingGenerator{}, &recordingFiller{}, conv)
+	c := generator.NewComposite(&recordingGenerator{}, &recordingGenerator{}, &recordingGenerator{}, &recordingFiller{}, conv)
 
 	out, err := c.ConvertToPDF(context.Background(), []byte("DOCX"), "x.docx")
 	if err != nil {
@@ -155,7 +170,7 @@ func TestComposite_ConvertToPDFDelegates(t *testing.T) {
 // MD / PDF / DOCX-fill all work, and only ConvertToPDF rejects
 // the call with a sentinel.
 func TestComposite_NilConverter_FillTemplateOK(t *testing.T) {
-	c := generator.NewComposite(&recordingGenerator{}, &recordingGenerator{}, &recordingFiller{respBytes: []byte("ok")}, nil)
+	c := generator.NewComposite(&recordingGenerator{}, &recordingGenerator{}, &recordingGenerator{}, &recordingFiller{respBytes: []byte("ok")}, nil)
 
 	if _, err := c.FillTemplate(context.Background(), []byte("T"), nil); err != nil {
 		t.Errorf("FillTemplate with nil converter: %v", err)
