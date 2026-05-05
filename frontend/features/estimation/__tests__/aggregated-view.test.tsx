@@ -153,4 +153,29 @@ describe("AggregatedView", () => {
 
     expect(await screen.findByText("common.error")).toBeDefined();
   });
+
+  it("renders DownloadReportButton when aggregated has items", async () => {
+    server.use(
+      http.get(`${API}/projects/:id/estimations/aggregated`, () =>
+        HttpResponse.json(aggregatedData)
+      )
+    );
+
+    render(<AggregatedView projectId="p1" />, { wrapper: makeWrapper() });
+
+    expect(await screen.findByText("report.download")).toBeInTheDocument();
+  });
+
+  it("does not render DownloadReportButton when aggregated is empty", async () => {
+    server.use(
+      http.get(`${API}/projects/:id/estimations/aggregated`, () =>
+        HttpResponse.json({ items: [], total_hours: 0 })
+      )
+    );
+
+    render(<AggregatedView projectId="p1" />, { wrapper: makeWrapper() });
+
+    await screen.findByText("estimation.noAggregated");
+    expect(screen.queryByText("report.download")).toBeNull();
+  });
 });
