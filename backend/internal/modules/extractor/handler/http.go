@@ -7,6 +7,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,13 +24,32 @@ import (
 	"github.com/VDV001/estimate-pro/backend/pkg/jwt"
 )
 
+// ExtractionProjectResolver maps an extractionID to its owning project ID.
+// The implementation lives in the composition root (main.go) so the handler
+// package stays free of cross-module imports. Set via WithOwnershipResolver;
+// when nil, extraction-scoped routes skip the membership check (safe for
+// initial deploy before worker stamps project context onto every extraction).
+type ExtractionProjectResolver interface {
+	ProjectIDByExtraction(ctx context.Context, extractionID string) (string, error)
+}
+
 // Handler wires Extractor use-cases onto chi routes.
 type Handler struct {
-	uc *usecase.Extractor
+	uc       *usecase.Extractor
+	resolver ExtractionProjectResolver
+	roles    middleware.RoleGetter
 }
 
 func New(uc *usecase.Extractor) *Handler {
 	return &Handler{uc: uc}
+}
+
+// WithOwnershipResolver wires the project resolver and role checker used
+// by the extraction-scoped ownership middleware. Must be called before
+// Register / RegisterRoutes to take effect.
+func (h *Handler) WithOwnershipResolver(resolver ExtractionProjectResolver, roles middleware.RoleGetter) {
+	h.resolver = resolver
+	h.roles = roles
 }
 
 // Register mounts /api/v1 routes with JWT auth middleware in front of
@@ -61,10 +81,10 @@ func (h *Handler) mountAuthed(r chi.Router, membershipMW ...func(http.Handler) h
 		r.Post("/documents/{docId}/versions/{versionId}/extractions", h.RequestExtraction)
 	})
 
-	// Extraction-scoped routes are JWT-required; ownership is
-	// enforced at the use-case level in PR-B3 once the worker brings
-	// project context onto the extraction (TODO).
 	r.Route("/extractions/{extractionId}", func(r chi.Router) {
+		if h.resolver != nil && h.roles != nil {
+			r.Use(h.extractionOwnershipMW())
+		}
 		r.Get("/", h.GetExtraction)
 		r.Post("/cancel", h.CancelExtraction)
 		r.Post("/retry", h.RetryExtraction)
@@ -223,6 +243,29 @@ func (h *Handler) ListByProject(w http.ResponseWriter, r *http.Request) {
 		dtos[i] = toExtractionDTO(e)
 	}
 	response.WriteJSON(w, http.StatusOK, dtos)
+}
+
+func (h *Handler) extractionOwnershipMW() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			extractionID := chi.URLParam(r, "extractionId")
+			userID, ok := middleware.UserIDFromContext(r.Context())
+			if !ok {
+				sharedErrors.Unauthorized(w, "missing user context")
+				return
+			}
+			projectID, err := h.resolver.ProjectIDByExtraction(r.Context(), extractionID)
+			if err != nil {
+				sharedErrors.Forbidden(w, "extraction not accessible")
+				return
+			}
+			if _, err := h.roles.GetRole(r.Context(), projectID, userID); err != nil {
+				sharedErrors.Forbidden(w, "not a project member")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // mapError funnels every domain sentinel onto the right HTTP status
