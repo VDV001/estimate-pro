@@ -29,6 +29,21 @@ services:
     volumes:
       - minio_data:/data
 
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    command:
+      - "gotenberg"
+      - "--api-port=3000"
+      - "--api-timeout=300s"
+    ports:
+      - "3001:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   backend:
     build:
       context: ./backend
@@ -54,10 +69,13 @@ services:
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
       COMPOSIO_GMAIL_ACCOUNT_ID: ${COMPOSIO_GMAIL_ACCOUNT_ID:-}
       COMPOSIO_TELEGRAM_ACCOUNT_ID: ${COMPOSIO_TELEGRAM_ACCOUNT_ID:-}
+      GOTENBERG_URL: ${GOTENBERG_URL:-http://gotenberg:3000}
+      GOTENBERG_TIMEOUT: ${GOTENBERG_TIMEOUT:-5m}
     depends_on:
       - postgres
       - redis
       - minio
+      - gotenberg
 
 volumes:
   postgres_data:
