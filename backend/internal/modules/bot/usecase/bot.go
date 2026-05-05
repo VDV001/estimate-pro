@@ -71,7 +71,7 @@ func New(
 	estimations domain.EstimationManager,
 	documents domain.DocumentManager,
 	passwords domain.PasswordResetManager,
-	extractions domain.ExtractionTrigger,
+	extractions domain.Extractor,
 ) *BotUsecase {
 	return &BotUsecase{
 		sessions:     NewSessionManager(sessionRepo),
