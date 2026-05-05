@@ -324,6 +324,11 @@
       "estimation_aggregated": "Оценка агрегирована — {name}"
     }
   },
+  "report": {
+    "download": "Скачать отчёт",
+    "downloading": "Готовлю...",
+    "error": "Не удалось скачать отчёт"
+  },
   "extraction": {
     "status": {
       "pending": "В очереди",
