@@ -222,6 +222,7 @@ func main() {
 	// HTTP server is wired (see below); Stop is called on shutdown.
 	var extractorH *extractorHandler.Handler
 	var riverClient *river.Client[pgx.Tx]
+	var botExtraction botDomain.ExtractionTrigger
 	if cfg.Extractor.Enabled {
 		extractorRepository := extractorRepo.NewPostgresExtractionRepository(pool)
 
@@ -271,6 +272,7 @@ func main() {
 		enqueuer := &riverJobEnqueuerAdapter{client: riverClient}
 		extractorUC := extractorUsecase.NewExtractor(extractorRepository, cfg.Extractor.MaxBytes, enqueuer)
 		extractorH = extractorHandler.New(extractorUC)
+		botExtraction = &botExtractionAdapter{extractorUC: extractorUC}
 		extractorH.WithOwnershipResolver(
 			&extractionProjectResolverAdapter{
 				extractions: extractorRepository,
@@ -349,6 +351,7 @@ func main() {
 		&botEstimationAdapter{estimationUC: estimationUC, notifyDispatcher: notifyDispatcher},
 		&botDocumentAdapter{documentUC: documentUC},
 		&botPasswordResetAdapter{authUC: authUC},
+		botExtraction,
 	)
 	botH := botHandler.New(botUC, cfg.TelegramBot.WebhookSecret)
 
@@ -618,8 +621,8 @@ type botDocumentAdapter struct {
 	documentUC *documentUsecase.DocumentUsecase
 }
 
-func (a *botDocumentAdapter) Upload(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) error {
-	_, _, err := a.documentUC.Upload(ctx, documentUsecase.UploadInput{
+func (a *botDocumentAdapter) Upload(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) (string, string, error) {
+	doc, version, err := a.documentUC.Upload(ctx, documentUsecase.UploadInput{
 		ProjectID: projectID,
 		Title:     title,
 		FileName:  fileName,
@@ -628,7 +631,28 @@ func (a *botDocumentAdapter) Upload(ctx context.Context, projectID, title, fileN
 		Content:   content,
 		UserID:    userID,
 	})
-	return err
+	if err != nil {
+		return "", "", err
+	}
+	return doc.ID, version.ID, nil
+}
+
+// botExtractionAdapter implements botDomain.ExtractionTrigger using
+// the extractor module's RequestExtraction use case. The bot module
+// stays free of cross-module imports — coupling lives here in the
+// composition root. nil-safe at the bot side: when the extractor is
+// gated off (FEATURE_DOCUMENT_PIPELINE_ENABLED=false), the wiring
+// below leaves the adapter nil and the bot short-circuits cleanly.
+type botExtractionAdapter struct {
+	extractorUC *extractorUsecase.Extractor
+}
+
+func (a *botExtractionAdapter) RequestExtraction(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (string, error) {
+	ext, err := a.extractorUC.RequestExtraction(ctx, documentID, documentVersionID, fileSize, actor)
+	if err != nil {
+		return "", err
+	}
+	return ext.ID, nil
 }
 
 // roleGetterAdapter adapts MemberRepository.GetRole to middleware.RoleGetter interface (returns string).

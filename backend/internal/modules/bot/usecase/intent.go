@@ -28,15 +28,19 @@ type IntentExecutor struct {
 	estimations domain.EstimationManager
 	documents   domain.DocumentManager
 	passwords   domain.PasswordResetManager
+	extractions domain.ExtractionTrigger
 }
 
-// NewIntentExecutor creates a new IntentExecutor.
+// NewIntentExecutor creates a new IntentExecutor. extractions may be
+// nil in tests / dev environments where the extractor module is not
+// wired — the post-upload trigger short-circuits cleanly in that case.
 func NewIntentExecutor(
 	projects domain.ProjectManager,
 	members domain.MemberManager,
 	estimations domain.EstimationManager,
 	documents domain.DocumentManager,
 	passwords domain.PasswordResetManager,
+	extractions domain.ExtractionTrigger,
 ) *IntentExecutor {
 	return &IntentExecutor{
 		projects:    projects,
@@ -44,6 +48,7 @@ func NewIntentExecutor(
 		estimations: estimations,
 		documents:   documents,
 		passwords:   passwords,
+		extractions: extractions,
 	}
 }
 

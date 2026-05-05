@@ -106,6 +106,19 @@ type EstimationManager interface {
 }
 
 // DocumentManager provides document operations for the bot module.
+// Upload returns the freshly-created document ID and document
+// version ID so the bot can hand them to the ExtractionTrigger
+// (PR-B5) without re-querying the document repository.
 type DocumentManager interface {
-	Upload(ctx context.Context, projectID string, title string, fileName string, fileSize int64, fileType string, content io.Reader, userID string) error
+	Upload(ctx context.Context, projectID string, title string, fileName string, fileSize int64, fileType string, content io.Reader, userID string) (documentID string, documentVersionID string, err error)
+}
+
+// ExtractionTrigger kicks off an async extraction job for a freshly
+// uploaded document version. The bot calls it after a successful
+// upload; the actual processing happens out-of-band on the river
+// queue (see modules/extractor/worker). Returned extractionID lets
+// the caller poll the status (PR-B5 pair 3) or surface a deep link
+// to the user.
+type ExtractionTrigger interface {
+	RequestExtraction(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (extractionID string, err error)
 }

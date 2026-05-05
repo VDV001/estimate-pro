@@ -939,7 +939,7 @@ func TestExecute(t *testing.T) {
 				passwords = tc.passwords
 			}
 
-			executor := usecase.NewIntentExecutor(projects, members, estimations, docs, passwords)
+			executor := usecase.NewIntentExecutor(projects, members, estimations, docs, passwords, &mockExtractionTrigger{})
 
 			msg, keyboard, err := executor.Execute(t.Context(), tc.intent, tc.userID)
 			if tc.wantErr && err == nil {
@@ -990,7 +990,7 @@ func TestExecute(t *testing.T) {
 // (action:payload convention) rather than legacy "cancel" without colon.
 // See issue #20.
 func TestExecute_CreateProject_CancelButtonUsesColonFormat(t *testing.T) {
-	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil)
+	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{})
 	intent := &domain.Intent{
 		Type:   domain.IntentCreateProject,
 		Params: map[string]string{"name": "X"},
@@ -1009,7 +1009,7 @@ func TestExecute_CreateProject_CancelButtonUsesColonFormat(t *testing.T) {
 // button in removeMember's keyboard uses the canonical "cancel:" format.
 // See issue #20.
 func TestExecute_RemoveMember_CancelButtonUsesColonFormat(t *testing.T) {
-	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil)
+	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{})
 	intent := &domain.Intent{
 		Type:   domain.IntentRemoveMember,
 		Params: map[string]string{"project_name": "Alpha", "user_name": "John"},
@@ -1029,7 +1029,7 @@ func TestExecute_RemoveMember_CancelButtonUsesColonFormat(t *testing.T) {
 // Pre-fix the callback was "role:developer" → ProcessCallback default →
 // silent skip → flow hung until session TTL. See issue #26 (found via #21).
 func TestExecute_AddMember_RoleButtonsUseSelPrefix(t *testing.T) {
-	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil)
+	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{})
 	intent := &domain.Intent{
 		Type:   domain.IntentAddMember,
 		Params: map[string]string{"project_name": "Backend", "email": "dev@example.com"},
@@ -1084,6 +1084,7 @@ func TestExecute_AllValidIntentsHaveCase(t *testing.T) {
 		&mockEstimationManager{},
 		&mockDocumentManager{},
 		&mockPasswordResetManager{},
+		&mockExtractionTrigger{},
 	)
 	const unknownMarker = "Не удалось распознать команду"
 
@@ -1113,7 +1114,7 @@ func TestExecute_UploadDocument_EnrichesParamsWithProjectID(t *testing.T) {
 			return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
 		},
 	}
-	executor := usecase.NewIntentExecutor(projects, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil)
+	executor := usecase.NewIntentExecutor(projects, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{})
 	intent := &domain.Intent{
 		Type:   domain.IntentUploadDocument,
 		Params: map[string]string{"project_name": "Alpha"},
