@@ -19,8 +19,9 @@ describe("ExtractionStatusBadge", () => {
   });
 
   it.each<[ExtractionStatus, string]>([
+    ["pending", "lucide-clock"],
     ["processing", "lucide-loader-circle"],
-    ["completed", "lucide-check-circle-2"],
+    ["completed", "lucide-circle-check"],
     ["failed", "lucide-circle-x"],
     ["cancelled", "lucide-ban"],
   ])("status %s shows icon %s", (status, iconClass) => {
@@ -31,7 +32,7 @@ describe("ExtractionStatusBadge", () => {
   it("processing icon is animated (spins)", () => {
     const { container } = render(<ExtractionStatusBadge status="processing" />);
     const icon = container.querySelector("svg.lucide-loader-circle");
-    expect(icon?.className).toMatch(/animate-spin/);
+    expect(icon?.getAttribute("class")).toMatch(/animate-spin/);
   });
 
   it("applies role=status for screen readers", () => {
