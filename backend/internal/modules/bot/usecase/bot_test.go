@@ -232,14 +232,28 @@ func (m *mockEstimationManager) RequestEstimation(ctx context.Context, projectID
 }
 
 type mockDocumentManager struct {
-	UploadFn func(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) error
+	uploadFn func(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) (string, string, error)
 }
 
-func (m *mockDocumentManager) Upload(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) error {
-	if m.UploadFn != nil {
-		return m.UploadFn(ctx, projectID, title, fileName, fileSize, fileType, content, userID)
+func (m *mockDocumentManager) Upload(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) (string, string, error) {
+	if m.uploadFn != nil {
+		return m.uploadFn(ctx, projectID, title, fileName, fileSize, fileType, content, userID)
 	}
-	return nil
+	return "", "", nil
+}
+
+// mockExtractionTrigger captures RequestExtraction calls in PR-B5
+// post-upload tests. Default returns "extraction-1" + nil so test
+// cases that don't care about the value don't need to set requestFn.
+type mockExtractionTrigger struct {
+	requestFn func(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (string, error)
+}
+
+func (m *mockExtractionTrigger) RequestExtraction(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (string, error) {
+	if m.requestFn != nil {
+		return m.requestFn(ctx, documentID, documentVersionID, fileSize, actor)
+	}
+	return "extraction-1", nil
 }
 
 // --- Helper to build a test BotUsecase ---
@@ -283,6 +297,7 @@ type testBotDeps struct {
 	members      *mockMemberManager
 	estimations  *mockEstimationManager
 	documents    *mockDocumentManager
+	extractions  *mockExtractionTrigger
 }
 
 func newTestBotDeps() *testBotDeps {
@@ -299,6 +314,7 @@ func newTestBotDeps() *testBotDeps {
 		members:      &mockMemberManager{},
 		estimations:  &mockEstimationManager{},
 		documents:    &mockDocumentManager{},
+		extractions:  &mockExtractionTrigger{},
 	}
 }
 
@@ -323,6 +339,7 @@ func (d *testBotDeps) build() *BotUsecase {
 		d.estimations,
 		d.documents,
 		nil, // passwords (PasswordResetManager)
+		d.extractions,
 	)
 }
 
@@ -2111,6 +2128,109 @@ func TestParseHours(t *testing.T) {
 				t.Errorf("maxH = %v, want %v", maxH, tc.wantMax)
 			}
 		})
+	}
+}
+
+// TestProcessMessage_FileUpload_TriggersExtraction pins the PR-B5
+// behavior: when the user uploads a document into an active session
+// that already has project_id, the bot uploads the file (existing
+// happy path) AND immediately kicks off an extraction job using the
+// docID + versionID returned from the document upload.
+//
+// The extraction is async (river queue under the hood); this test
+// only asserts that RequestExtraction was called with the right
+// IDs / file size / actor. Polling + tasks reply is exercised
+// separately in pair 3.
+func TestProcessMessage_FileUpload_TriggersExtraction(t *testing.T) {
+	deps := newTestBotDeps()
+
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 12345, UserID: "user-1"}, nil
+	}
+
+	// Active session with project context — drives uploadFile path.
+	stateJSON, _ := json.Marshal(map[string]string{"project_id": "proj-1"})
+	deps.sessionRepo.GetActiveByChatIDFn = func(_ context.Context, _ string) (*domain.BotSession, error) {
+		return &domain.BotSession{
+			ID:        "sess-1",
+			UserID:    "user-1",
+			ChatID:    "100",
+			Intent:    domain.IntentUploadDocument,
+			State:     stateJSON,
+			ExpiresAt: time.Now().Add(10 * time.Minute),
+		}, nil
+	}
+
+	deps.tgClient.GetFileURLFn = func(_ context.Context, _ string) (string, error) {
+		return "https://api.telegram.org/file/bot/spec.pdf", nil
+	}
+	deps.tgClient.DownloadFileFn = func(_ context.Context, _ string) ([]byte, error) {
+		return []byte("PDF-bytes"), nil
+	}
+	deps.tgClient.SetReactionFn = func(_ context.Context, _ string, _ int64, _ string) error { return nil }
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, _ string) error { return nil }
+	deps.tgClient.SendMarkdownFn = func(_ context.Context, _, _ string) error { return nil }
+
+	// Document upload returns specific IDs that the trigger must see.
+	var uploadedTitle string
+	deps.documents.uploadFn = func(_ context.Context, projectID, title, fileName string, _ int64, _ string, _ io.Reader, _ string) (string, string, error) {
+		uploadedTitle = title
+		_ = projectID
+		_ = fileName
+		return "doc-42", "ver-7", nil
+	}
+
+	// Capture the RequestExtraction call.
+	var (
+		gotDocID, gotVerID, gotActor string
+		gotFileSize                  int64
+		extractionCalls              int
+	)
+	deps.extractions.requestFn = func(_ context.Context, documentID, documentVersionID string, fileSize int64, actor string) (string, error) {
+		extractionCalls++
+		gotDocID = documentID
+		gotVerID = documentVersionID
+		gotFileSize = fileSize
+		gotActor = actor
+		return "extraction-1", nil
+	}
+
+	uc := deps.build()
+
+	err := uc.ProcessMessage(t.Context(), &tg.Update{
+		Message: &tg.Message{
+			From:      &tg.User{ID: 12345},
+			Chat:      &tg.Chat{ID: 100, Type: "private"},
+			MessageID: 42,
+			Document: &tg.Document{
+				FileID:   "file-1",
+				FileName: "spec.pdf",
+				MimeType: "application/pdf",
+				FileSize: 4096,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+
+	if extractionCalls != 1 {
+		t.Fatalf("extractions.RequestExtraction calls=%d, want 1", extractionCalls)
+	}
+	if gotDocID != "doc-42" {
+		t.Errorf("RequestExtraction docID=%q, want doc-42", gotDocID)
+	}
+	if gotVerID != "ver-7" {
+		t.Errorf("RequestExtraction versionID=%q, want ver-7", gotVerID)
+	}
+	if gotFileSize != 4096 {
+		t.Errorf("RequestExtraction fileSize=%d, want 4096", gotFileSize)
+	}
+	if gotActor != "user:user-1" {
+		t.Errorf("RequestExtraction actor=%q, want user:user-1", gotActor)
+	}
+	if uploadedTitle == "" {
+		t.Errorf("documents.Upload was not called (uploadedTitle empty)")
 	}
 }
 

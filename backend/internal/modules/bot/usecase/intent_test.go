@@ -98,14 +98,29 @@ func (m *mockEstimationManager) RequestEstimation(ctx context.Context, projectID
 }
 
 type mockDocumentManager struct {
-	uploadFn func(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) error
+	uploadFn func(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) (string, string, error)
 }
 
-func (m *mockDocumentManager) Upload(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) error {
+func (m *mockDocumentManager) Upload(ctx context.Context, projectID, title, fileName string, fileSize int64, fileType string, content io.Reader, userID string) (string, string, error) {
 	if m.uploadFn != nil {
 		return m.uploadFn(ctx, projectID, title, fileName, fileSize, fileType, content, userID)
 	}
-	return nil
+	return "", "", nil
+}
+
+// mockExtractionTrigger captures RequestExtraction calls for assertion
+// in PR-B5 file-upload tests. Default returns "extraction-1" + nil so
+// tests that exercise the post-upload happy path don't need to set
+// the function.
+type mockExtractionTrigger struct {
+	requestFn func(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (string, error)
+}
+
+func (m *mockExtractionTrigger) RequestExtraction(ctx context.Context, documentID, documentVersionID string, fileSize int64, actor string) (string, error) {
+	if m.requestFn != nil {
+		return m.requestFn(ctx, documentID, documentVersionID, fileSize, actor)
+	}
+	return "extraction-1", nil
 }
 
 type mockPasswordResetManager struct {
