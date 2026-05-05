@@ -47,7 +47,20 @@ type BotUsecase struct {
 	envLLM       EnvLLMConfig
 	botUsername  string
 	formatter    *llm.Formatter // LLM #2 — personality formatter
+
+	// Extraction polling configuration (PR-B5). Defaults match
+	// ADR-016 §timeouts (3s × 100 = 5min). Tests override via
+	// SetExtractionPollingForTest to keep their runtime sub-second.
+	extractionPollInterval time.Duration
+	extractionPollMax      int
 }
+
+// Default extraction polling cadence. 3 seconds × 100 attempts =
+// 5 minutes total — matches the river job timeout in ADR-016.
+const (
+	defaultExtractionPollInterval = 3 * time.Second
+	defaultExtractionPollMax      = 100
+)
 
 const memoryLimit = 20 // last N messages to keep per user
 
@@ -82,11 +95,23 @@ func New(
 		prefs:        prefsRepo,
 		telegram:     tg,
 		executor:     NewIntentExecutor(projects, members, estimations, documents, passwords, extractions),
-		llmFactory:   llmFactory,
-		envLLM:       envLLM,
-		botUsername:  botUsername,
-		formatter:    formatter,
+		llmFactory:             llmFactory,
+		envLLM:                 envLLM,
+		botUsername:            botUsername,
+		formatter:              formatter,
+		extractionPollInterval: defaultExtractionPollInterval,
+		extractionPollMax:      defaultExtractionPollMax,
 	}
+}
+
+// SetExtractionPollingForTest overrides the polling cadence for
+// unit tests. interval drives the time between polls; maxAttempts
+// caps how long the loop runs before falling through to the
+// "still processing" branch. Production code should never call
+// this — bot.New picks ADR-016 defaults.
+func (uc *BotUsecase) SetExtractionPollingForTest(interval time.Duration, maxAttempts int) {
+	uc.extractionPollInterval = interval
+	uc.extractionPollMax = maxAttempts
 }
 
 // ProcessMessage handles an incoming Telegram message update.
@@ -382,18 +407,17 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 	slog.InfoContext(ctx, "BotUsecase.uploadFile: success", slog.String("file_name", doc.FileName), slog.String("project_id", projectID), slog.String("document_id", docID), slog.String("document_version_id", versionID))
 	_ = uc.telegram.SendMarkdown(ctx, chatID, messages.FileUploadedToProject(doc.FileName))
 
-	// Trigger async extraction. Failure to enqueue is logged and
-	// surfaced softly — the file is already saved in S3 and the
-	// extraction can be retried via the API. No bot-side error
-	// noise to the user; the absence of the follow-up tasks message
-	// is the failure signal until PR-B5 pair 3 lands the polling
-	// + reply flow.
+	// Trigger async extraction + poll for completion. Failure to
+	// enqueue is logged and surfaced softly — the file is already
+	// saved in S3 and the extraction can be retried via the API.
 	if uc.executor.extractions != nil {
 		extractionID, extErr := uc.executor.extractions.RequestExtraction(ctx, docID, versionID, doc.FileSize, "user:"+userID)
 		if extErr != nil {
 			slog.ErrorContext(ctx, "uploadFile: RequestExtraction failed", slog.String("error", extErr.Error()), slog.String("document_id", docID))
 		} else {
 			slog.InfoContext(ctx, "uploadFile: extraction requested", slog.String("extraction_id", extractionID), slog.String("document_id", docID))
+			_ = uc.telegram.SendMarkdown(ctx, chatID, messages.ExtractionAcknowledged)
+			uc.pollExtractionAndReply(ctx, chatID, extractionID)
 		}
 	}
 
@@ -401,6 +425,71 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 	go uc.saveMemory(context.WithoutCancel(ctx), userID, chatID, messages.MemoryUserUploadedFile(doc.FileName), messages.MemoryEstiFileUploaded, string(domain.IntentUploadDocument))
 
 	return nil
+}
+
+// pollExtractionAndReply polls the extractor until terminal status
+// or attempt cap, then sends a markdown reply to the user. Runs
+// synchronously inside the caller's ProcessMessage goroutine — a
+// single Telegram update already gets its own goroutine from the
+// long-poll loop, so blocking it for ≤5min is fine. If the parent
+// context is cancelled (graceful shutdown), polling stops and no
+// further messages are sent — the river worker keeps processing
+// regardless and the next bot interaction can show the result.
+func (uc *BotUsecase) pollExtractionAndReply(ctx context.Context, chatID, extractionID string) {
+	ticker := time.NewTicker(uc.extractionPollInterval)
+	defer ticker.Stop()
+
+	var last domain.ExtractionResult
+	for attempt := 0; attempt < uc.extractionPollMax; attempt++ {
+		select {
+		case <-ctx.Done():
+			slog.InfoContext(ctx, "pollExtractionAndReply: context cancelled", slog.String("extraction_id", extractionID), slog.Int("attempt", attempt))
+			return
+		default:
+		}
+
+		result, err := uc.executor.extractions.GetExtraction(ctx, extractionID)
+		if err != nil {
+			slog.WarnContext(ctx, "pollExtractionAndReply: GetExtraction failed", slog.String("extraction_id", extractionID), slog.String("error", err.Error()), slog.Int("attempt", attempt))
+		} else {
+			last = result
+			if result.Status.IsTerminal() {
+				uc.replyExtractionResult(ctx, chatID, result)
+				return
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+
+	// Loop fell through — extraction is still in flight at the cap.
+	// Surface a "still processing" reply so the user knows the
+	// upload was received and processing continues out of band.
+	slog.InfoContext(ctx, "pollExtractionAndReply: timeout reached", slog.String("extraction_id", extractionID), slog.String("last_status", string(last.Status)))
+	_ = uc.telegram.SendMarkdown(ctx, chatID, messages.ExtractionStillProcessing)
+}
+
+// replyExtractionResult routes a terminal ExtractionResult to the
+// appropriate user-facing markdown message — task list on success,
+// failure-reason mapping on failure, and a soft cancellation note
+// on cancelled (rare since the bot does not cancel its own jobs).
+func (uc *BotUsecase) replyExtractionResult(ctx context.Context, chatID string, result domain.ExtractionResult) {
+	switch result.Status {
+	case domain.ExtractionStatusCompleted:
+		tasks := make([]messages.ExtractionTask, len(result.Tasks))
+		for i, t := range result.Tasks {
+			tasks[i] = messages.ExtractionTask{Name: t.Name, EstimateHint: t.EstimateHint}
+		}
+		_ = uc.telegram.SendMarkdown(ctx, chatID, messages.ExtractionTasksReply(tasks))
+	case domain.ExtractionStatusFailed:
+		_ = uc.telegram.SendMarkdown(ctx, chatID, messages.ExtractionFailed(result.FailureReason))
+	case domain.ExtractionStatusCancelled:
+		_ = uc.telegram.SendMarkdown(ctx, chatID, messages.ExtractionFailed("cancelled"))
+	}
 }
 
 // saveMemory stores user message and bot response in conversation history.

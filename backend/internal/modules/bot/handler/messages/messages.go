@@ -70,6 +70,66 @@ func MemoryUserUploadedFile(fileName string) string {
 	return "Загрузил файл: " + fileName
 }
 
+// ExtractionAcknowledged is the kick-off message shown immediately
+// after the file lands and the extraction job is enqueued — tells
+// the user the bot is working so the silence of the polling loop
+// reads as activity, not a hang.
+const ExtractionAcknowledged = "Анализирую документ — извлекаю задачи. Это может занять минуту."
+
+// ExtractionTasksReply formats the extracted tasks list into a
+// markdown bullet block. EstimateHint is appended in italics when
+// non-empty; otherwise the bullet shows just the task name.
+// Empty tasks slice produces a "не нашёл задач" fallback so the
+// reply is never blank.
+func ExtractionTasksReply(tasks []ExtractionTask) string {
+	if len(tasks) == 0 {
+		return "Документ обработан, но я не нашёл в нём конкретных задач для оценки."
+	}
+	var b strings.Builder
+	b.WriteString("Готово! Вот задачи, которые я извлёк:\n\n")
+	for _, t := range tasks {
+		fmt.Fprintf(&b, "• *%s*", t.Name)
+		if t.EstimateHint != "" {
+			fmt.Fprintf(&b, " — _%s_", t.EstimateHint)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// ExtractionTask is the bot/handler/messages-side projection of an
+// extracted task. Mirrors bot/domain.ExtractedTaskSummary; a
+// dedicated type here keeps the messages package free of cross-
+// layer imports.
+type ExtractionTask struct {
+	Name         string
+	EstimateHint string
+}
+
+// ExtractionFailed maps a failure reason from the extractor module
+// onto a Russian operator-friendly message. Specific reasons get
+// dedicated copy; anything else falls through to a generic line.
+func ExtractionFailed(reason string) string {
+	switch reason {
+	case "encrypted file (password protected)":
+		return "Не удалось прочитать документ: файл защищён паролем."
+	case "LLM service error":
+		return "Не удалось извлечь задачи: сервис LLM временно недоступен. Попробуйте позже."
+	case "prompt injection detected":
+		return "Не удалось обработать документ: подозрительный текст. Если файл легитимный — напишите администратору."
+	case "":
+		return "Не удалось извлечь задачи из документа."
+	default:
+		return "Не удалось извлечь задачи: " + reason
+	}
+}
+
+// ExtractionStillProcessing is shown when polling exhausts attempts
+// but the extraction is still in progress — soft "in flight"
+// signal so the user knows the upload was received and processing
+// continues asynchronously.
+const ExtractionStillProcessing = "Документ ещё в обработке. Я пришлю задачи, как только всё будет готово."
+
 // Project lifecycle text — list / status / create / update / upload-target.
 const (
 	NoProjectsCreateFirst = "У вас пока нет проектов. Создайте первый с помощью команды «создай проект»."

@@ -2217,6 +2217,10 @@ func TestProcessMessage_FileUpload_TriggersExtraction(t *testing.T) {
 	}
 
 	uc := deps.build()
+	// Short polling so the test doesn't wait the production 5-minute
+	// default — this test only cares that RequestExtraction was
+	// called, not what the polling loop does.
+	uc.SetExtractionPollingForTest(time.Millisecond, 1)
 
 	err := uc.ProcessMessage(t.Context(), &tg.Update{
 		Message: &tg.Message{
