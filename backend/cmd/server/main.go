@@ -367,6 +367,7 @@ func main() {
 		&botDocumentAdapter{documentUC: documentUC},
 		&botPasswordResetAdapter{authUC: authUC},
 		botExtraction,
+		&botReporterAdapter{baseURL: cfg.FrontendBaseURL},
 	)
 	botH := botHandler.New(botUC, cfg.TelegramBot.WebhookSecret)
 
@@ -954,3 +955,19 @@ func (a *reportEstimationAggregatorAdapter) GetAggregated(ctx context.Context, p
 	return a.estimationUC.GetAggregated(ctx, projectID)
 }
 
+
+// botReporterAdapter satisfies bot/domain.Reporter by building a
+// deeplink to the frontend's existing report download path. Bot
+// users get a clickable link in chat instead of a direct file
+// transfer — the telegram client API is intentionally kept
+// minimal (text only) for this PR.
+type botReporterAdapter struct {
+	baseURL string
+}
+
+func (a *botReporterAdapter) BuildReportURL(_ context.Context, projectID, format string) (string, error) {
+	if format == "" {
+		format = "pdf"
+	}
+	return fmt.Sprintf("%s/dashboard/projects/%s?download=report&format=%s", a.baseURL, projectID, format), nil
+}

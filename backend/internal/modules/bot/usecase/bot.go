@@ -91,6 +91,7 @@ func New(
 	documents domain.DocumentManager,
 	passwords domain.PasswordResetManager,
 	extractions domain.Extractor,
+	reporter domain.Reporter,
 ) *BotUsecase {
 	return &BotUsecase{
 		sessions:     NewSessionManager(sessionRepo),
@@ -100,7 +101,7 @@ func New(
 		memory:       memoryRepo,
 		prefs:        prefsRepo,
 		telegram:     tg,
-		executor:     NewIntentExecutor(projects, members, estimations, documents, passwords, extractions),
+		executor:     NewIntentExecutor(projects, members, estimations, documents, passwords, extractions, reporter),
 		llmFactory:             llmFactory,
 		envLLM:                 envLLM,
 		botUsername:            botUsername,

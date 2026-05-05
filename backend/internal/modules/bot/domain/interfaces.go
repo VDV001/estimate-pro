@@ -184,3 +184,13 @@ type ExtractionResult struct {
 type ExtractionStatusReader interface {
 	GetExtraction(ctx context.Context, extractionID string) (ExtractionResult, error)
 }
+
+// Reporter builds a download URL for the rendered report so the
+// bot can hand it to the user as a clickable link. Format
+// negotiation lives on the web side — Telegram bots can't host
+// large binaries inline without extending the telegram client API,
+// so the bot intent flow defers actual byte delivery to the
+// frontend's existing download path.
+type Reporter interface {
+	BuildReportURL(ctx context.Context, projectID, format string) (string, error)
+}

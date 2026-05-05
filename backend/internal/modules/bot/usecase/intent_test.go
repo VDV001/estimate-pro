@@ -127,6 +127,18 @@ func (*mockExtractionTrigger) GetExtraction(_ context.Context, _ string) (domain
 	return domain.ExtractionResult{Status: domain.ExtractionStatusCompleted}, nil
 }
 
+// mockReporter satisfies bot/domain.Reporter for intent tests.
+type mockReporter struct {
+	buildFn func(ctx context.Context, projectID, format string) (string, error)
+}
+
+func (m *mockReporter) BuildReportURL(ctx context.Context, projectID, format string) (string, error) {
+	if m.buildFn != nil {
+		return m.buildFn(ctx, projectID, format)
+	}
+	return "https://app.example/projects/" + projectID + "/report?format=" + format, nil
+}
+
 type mockPasswordResetManager struct {
 	requestResetFn func(ctx context.Context, userID string) (string, error)
 }
@@ -149,6 +161,7 @@ func TestExecute(t *testing.T) {
 		members           *mockMemberManager
 		estimations       *mockEstimationManager
 		passwords         *mockPasswordResetManager
+		reporter          *mockReporter
 		wantContains      []string
 		wantNotContains   []string
 		wantKeyboard      bool
@@ -267,6 +280,51 @@ func TestExecute(t *testing.T) {
 				},
 			},
 			wantErr: true,
+		},
+		{
+			name:   "RenderReport_Success_DefaultsPDF",
+			intent: &domain.Intent{Type: domain.IntentRenderReport, Params: map[string]string{"project_id": "p1"}},
+			userID: "user-1",
+			reporter: &mockReporter{
+				buildFn: func(_ context.Context, projectID, format string) (string, error) {
+					if projectID != "p1" || format != "pdf" {
+						return "", errors.New("wrong args")
+					}
+					return "https://app.example/projects/p1/report?format=pdf", nil
+				},
+			},
+			wantContains: []string{"https://app.example/projects/p1/report?format=pdf"},
+		},
+		{
+			name:   "RenderReport_Success_FormatMD",
+			intent: &domain.Intent{Type: domain.IntentRenderReport, Params: map[string]string{"project_id": "p1", "format": "md"}},
+			userID: "user-1",
+			reporter: &mockReporter{
+				buildFn: func(_ context.Context, _, format string) (string, error) {
+					if format != "md" {
+						return "", errors.New("expected format=md, got " + format)
+					}
+					return "https://app.example/projects/p1/report?format=md", nil
+				},
+			},
+			wantContains: []string{"format=md"},
+		},
+		{
+			name:         "RenderReport_NoIdentifier",
+			intent:       &domain.Intent{Type: domain.IntentRenderReport, Params: map[string]string{}},
+			userID:       "user-1",
+			wantContains: []string{"Укажите проект"},
+		},
+		{
+			name:   "RenderReport_ByName_NotFound",
+			intent: &domain.Intent{Type: domain.IntentRenderReport, Params: map[string]string{"project_name": "Ghost"}},
+			userID: "user-1",
+			projects: &mockProjectManager{
+				listFn: func(_ context.Context, _ string, _, _ int) ([]domain.ProjectSummary, int, error) {
+					return []domain.ProjectSummary{}, 0, nil
+				},
+			},
+			wantContains: []string{"Ghost", "не найден"},
 		},
 		{
 			name:         "UpdateProject_NoName",
@@ -943,7 +1001,12 @@ func TestExecute(t *testing.T) {
 				passwords = tc.passwords
 			}
 
-			executor := usecase.NewIntentExecutor(projects, members, estimations, docs, passwords, &mockExtractionTrigger{})
+			var reporter domain.Reporter = tc.reporter
+			if reporter == nil {
+				reporter = &mockReporter{}
+			}
+
+			executor := usecase.NewIntentExecutor(projects, members, estimations, docs, passwords, &mockExtractionTrigger{}, reporter)
 
 			msg, keyboard, err := executor.Execute(t.Context(), tc.intent, tc.userID)
 			if tc.wantErr && err == nil {
@@ -994,7 +1057,7 @@ func TestExecute(t *testing.T) {
 // (action:payload convention) rather than legacy "cancel" without colon.
 // See issue #20.
 func TestExecute_CreateProject_CancelButtonUsesColonFormat(t *testing.T) {
-	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{})
+	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{}, &mockReporter{})
 	intent := &domain.Intent{
 		Type:   domain.IntentCreateProject,
 		Params: map[string]string{"name": "X"},
@@ -1013,7 +1076,7 @@ func TestExecute_CreateProject_CancelButtonUsesColonFormat(t *testing.T) {
 // button in removeMember's keyboard uses the canonical "cancel:" format.
 // See issue #20.
 func TestExecute_RemoveMember_CancelButtonUsesColonFormat(t *testing.T) {
-	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{})
+	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{}, &mockReporter{})
 	intent := &domain.Intent{
 		Type:   domain.IntentRemoveMember,
 		Params: map[string]string{"project_name": "Alpha", "user_name": "John"},
@@ -1033,7 +1096,7 @@ func TestExecute_RemoveMember_CancelButtonUsesColonFormat(t *testing.T) {
 // Pre-fix the callback was "role:developer" → ProcessCallback default →
 // silent skip → flow hung until session TTL. See issue #26 (found via #21).
 func TestExecute_AddMember_RoleButtonsUseSelPrefix(t *testing.T) {
-	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{})
+	executor := usecase.NewIntentExecutor(&mockProjectManager{}, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{}, &mockReporter{})
 	intent := &domain.Intent{
 		Type:   domain.IntentAddMember,
 		Params: map[string]string{"project_name": "Backend", "email": "dev@example.com"},
@@ -1089,6 +1152,7 @@ func TestExecute_AllValidIntentsHaveCase(t *testing.T) {
 		&mockDocumentManager{},
 		&mockPasswordResetManager{},
 		&mockExtractionTrigger{},
+		&mockReporter{},
 	)
 	const unknownMarker = "Не удалось распознать команду"
 
@@ -1118,7 +1182,7 @@ func TestExecute_UploadDocument_EnrichesParamsWithProjectID(t *testing.T) {
 			return []domain.ProjectSummary{{ID: "p1", Name: "Alpha"}}, 1, nil
 		},
 	}
-	executor := usecase.NewIntentExecutor(projects, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{})
+	executor := usecase.NewIntentExecutor(projects, &mockMemberManager{}, &mockEstimationManager{}, &mockDocumentManager{}, nil, &mockExtractionTrigger{}, &mockReporter{})
 	intent := &domain.Intent{
 		Type:   domain.IntentUploadDocument,
 		Params: map[string]string{"project_name": "Alpha"},

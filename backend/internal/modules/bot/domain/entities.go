@@ -29,6 +29,7 @@ const (
 	IntentRequestEstimation IntentType = "request_estimation"
 	IntentSubmitEstimation IntentType = "submit_estimation"
 	IntentGetAggregated    IntentType = "get_aggregated"
+	IntentRenderReport     IntentType = "render_report"
 	IntentUploadDocument   IntentType = "upload_document"
 	IntentForgotPassword   IntentType = "forgot_password"
 	IntentHelp             IntentType = "help"
@@ -48,6 +49,7 @@ func (t IntentType) IsValid() bool {
 		IntentRequestEstimation,
 		IntentSubmitEstimation,
 		IntentGetAggregated,
+		IntentRenderReport,
 		IntentUploadDocument,
 		IntentForgotPassword,
 		IntentHelp,
