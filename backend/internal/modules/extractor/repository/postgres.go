@@ -13,10 +13,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/extractor/domain"
 )
+
+// pgUniqueViolationCode is the SQLSTATE class 23 / code 505 returned
+// by Postgres when a UNIQUE / EXCLUDE constraint trips. Callers map
+// it onto the domain idempotency sentinel so use cases never have
+// to import pgconn just to detect "already exists".
+const pgUniqueViolationCode = "23505"
 
 // PostgresExtractionRepository persists Extraction aggregates and
 // their audit events against a Postgres pool. All multi-row writes
@@ -46,6 +53,10 @@ func (r *PostgresExtractionRepository) Create(ctx context.Context, ext *domain.E
 		ext.CreatedAt, ext.UpdatedAt, ext.StartedAt, ext.CompletedAt,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolationCode {
+			return fmt.Errorf("extractor.repo.Create: %w", domain.ErrExtractionAlreadyActive)
+		}
 		return fmt.Errorf("extractor.repo.Create: %w", err)
 	}
 	return nil

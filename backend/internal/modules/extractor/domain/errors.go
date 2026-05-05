@@ -20,4 +20,5 @@ var (
 	ErrDocumentTooLarge        = errors.New("extractor: document exceeds maximum allowed size")
 	ErrPromptInjectionDetected = errors.New("extractor: prompt injection detected in document text")
 	ErrLLMResponseSchemaInvalid = errors.New("extractor: LLM response is not parseable JSON or violates the {tasks:[{name,estimate_hint}]} schema")
+	ErrExtractionAlreadyActive  = errors.New("extractor: an active extraction already exists for this document version")
 )
