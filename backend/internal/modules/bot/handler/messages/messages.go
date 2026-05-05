@@ -257,7 +257,15 @@ const (
 	AskProjectForRequestEstimation = "Укажите проект, для которого нужна оценка."
 	AskTaskForRequestEstimation    = "Укажите задачу, для которой нужна оценка."
 	AskProjectForAggregated        = "Укажите проект, чтобы получить агрегированную оценку."
+	AskProjectForReport            = "Укажите проект, чтобы получить отчёт."
+	ReportUnavailable              = "Сервис отчётов сейчас недоступен. Попробуйте позже."
 )
+
+// ReportReady is the success message handed back to the user with
+// a clickable link to the rendered report. format ∈ {pdf, md, docx}.
+func ReportReady(url, format string) string {
+	return fmt.Sprintf("Отчёт готов (%s):\n%s", strings.ToUpper(format), url)
+}
 
 // EstimationSubmitted is the success notification after submit_estimation.
 func EstimationSubmitted(task, project string, minH, likelyH, maxH float64) string {
