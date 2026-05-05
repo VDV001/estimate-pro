@@ -59,6 +59,10 @@ import (
 	extractorUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/usecase"
 	extractorWorker "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/worker"
 
+	reportDomain "github.com/VDV001/estimate-pro/backend/internal/modules/report/domain"
+	reportHandler "github.com/VDV001/estimate-pro/backend/internal/modules/report/handler"
+	reportUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/report/usecase"
+
 	notifyModule "github.com/VDV001/estimate-pro/backend/internal/modules/notify"
 	notifyChannel "github.com/VDV001/estimate-pro/backend/internal/modules/notify/channel"
 	notifyHandler "github.com/VDV001/estimate-pro/backend/internal/modules/notify/handler"
@@ -215,7 +219,17 @@ func main() {
 		sharedgenerator.NewDOCXTemplateFiller(),
 		gotenbergConverter,
 	)
-	_ = documentGenerator // PR-B7 wires this into the report use case.
+	// Report module — produces PERT estimation reports (md/pdf/docx)
+	// from project + aggregated estimation. Wired after the generator
+	// is built; the renderer adapter maps reportdomain.Format → the
+	// generator's Format and forwards to Composite.Generate.
+	reportRendererAdapter := &reportRendererAdapter{generator: documentGenerator}
+	reportUC := reportUsecase.NewReporter(
+		projectRepository,
+		&reportEstimationAggregatorAdapter{estimationUC: estimationUC},
+		reportRendererAdapter,
+	)
+	reportH := reportHandler.New(reportUC)
 
 	// Extractor module (PR-B Document Pipeline) — gated behind the
 	// FEATURE_DOCUMENT_PIPELINE_ENABLED flag so a fresh deploy stays
@@ -370,6 +384,7 @@ func main() {
 	if extractorH != nil {
 		extractorH.Register(r, jwtService, membershipMW)
 	}
+	reportH.Register(r, jwtService, membershipMW)
 
 	// Server
 	srv := &http.Server{
@@ -905,3 +920,37 @@ func (a *extractionProjectResolverAdapter) ProjectIDByExtraction(ctx context.Con
 	}
 	return doc.ProjectID, nil
 }
+
+// reportRendererAdapter satisfies report/usecase.Renderer by mapping
+// reportdomain.Format → shared/generator.Format and forwarding to
+// Composite.Generate. Centralises the format-mapping concern in the
+// composition root so the report use case stays decoupled from the
+// generator package.
+type reportRendererAdapter struct {
+	generator *sharedgenerator.Composite
+}
+
+func (a *reportRendererAdapter) Render(ctx context.Context, format reportDomain.Format, input sharedgenerator.GenerationInput) ([]byte, error) {
+	switch format {
+	case reportDomain.FormatMD:
+		return a.generator.Generate(ctx, sharedgenerator.FormatMD, input)
+	case reportDomain.FormatPDF:
+		return a.generator.Generate(ctx, sharedgenerator.FormatPDF, input)
+	case reportDomain.FormatDOCX:
+		return a.generator.Generate(ctx, sharedgenerator.FormatDOCX, input)
+	}
+	return nil, fmt.Errorf("reportRendererAdapter: unsupported format %q", format)
+}
+
+// reportEstimationAggregatorAdapter satisfies report/usecase.EstimationAggregator
+// by forwarding to the existing estimation use case. Keeps the report module
+// from importing estimation/usecase directly — only the composition root
+// crosses module boundaries.
+type reportEstimationAggregatorAdapter struct {
+	estimationUC *estimationUsecase.EstimationUsecase
+}
+
+func (a *reportEstimationAggregatorAdapter) GetAggregated(ctx context.Context, projectID string) (*estimationDomain.AggregatedResult, error) {
+	return a.estimationUC.GetAggregated(ctx, projectID)
+}
+
