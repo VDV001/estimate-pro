@@ -1,6 +1,8 @@
 // Copyright 2026 Daniil Vdovin. All rights reserved.
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { apiClient } from "@/lib/api-client";
+
 // ---------------------------------------------------------------------------
 // Types — mirrored from backend extractor handler DTOs
 // ---------------------------------------------------------------------------
@@ -46,34 +48,47 @@ export interface ExtractionEnvelope {
 }
 
 // ---------------------------------------------------------------------------
-// API functions — STUBS (RED phase, GREEN replaces with apiClient calls)
+// API functions
 // ---------------------------------------------------------------------------
 
 export async function requestExtraction(
-  _projectId: string,
-  _docId: string,
-  _versionId: string,
-  _fileSize: number,
+  projectId: string,
+  docId: string,
+  versionId: string,
+  fileSize: number,
 ): Promise<Extraction> {
-  throw new Error("requestExtraction: not implemented");
+  return apiClient<Extraction>(
+    `/api/v1/projects/${projectId}/documents/${docId}/versions/${versionId}/extractions`,
+    { method: "POST", body: { file_size: fileSize } },
+  );
 }
 
 export async function getExtraction(
-  _extractionId: string,
+  extractionId: string,
 ): Promise<ExtractionEnvelope> {
-  throw new Error("getExtraction: not implemented");
+  return apiClient<ExtractionEnvelope>(
+    `/api/v1/extractions/${extractionId}`,
+  );
 }
 
-export async function cancelExtraction(_extractionId: string): Promise<void> {
-  throw new Error("cancelExtraction: not implemented");
+export async function cancelExtraction(extractionId: string): Promise<void> {
+  return apiClient<void>(
+    `/api/v1/extractions/${extractionId}/cancel`,
+    { method: "POST" },
+  );
 }
 
-export async function retryExtraction(_extractionId: string): Promise<void> {
-  throw new Error("retryExtraction: not implemented");
+export async function retryExtraction(extractionId: string): Promise<void> {
+  return apiClient<void>(
+    `/api/v1/extractions/${extractionId}/retry`,
+    { method: "POST" },
+  );
 }
 
 export async function listExtractions(
-  _projectId: string,
+  projectId: string,
 ): Promise<Extraction[]> {
-  throw new Error("listExtractions: not implemented");
+  return apiClient<Extraction[]>(
+    `/api/v1/projects/${projectId}/extractions`,
+  );
 }
