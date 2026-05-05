@@ -67,10 +67,30 @@ func (h *Handler) mountAuthed(r chi.Router, membershipMW ...func(http.Handler) h
 }
 
 // RenderReport handles GET /api/v1/projects/{projectId}/report.
-// Stub returns 501 Not Implemented so the partner test fails.
-func (h *Handler) RenderReport(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-	_, _ = w.Write([]byte("RenderReport: not implemented"))
+// Picks the format from the ?format= query param (defaults to pdf
+// when missing), delegates to the use case, and streams bytes back
+// with Content-Type / Content-Disposition tuned to the format.
+func (h *Handler) RenderReport(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	formatStr := r.URL.Query().Get("format")
+	if formatStr == "" {
+		formatStr = string(reportdomain.FormatPDF)
+	}
+	format := reportdomain.Format(formatStr)
+
+	bytes, err := h.uc.RenderEstimationReport(r.Context(), projectID, format)
+	if err != nil {
+		h.mapError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentTypeFor(format))
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=%q", filenameFor(projectID, format)))
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(bytes); err != nil {
+		slog.Warn("report.handler: write body", "error", err)
+	}
 }
 
 // contentTypeFor picks the MIME type for the rendered bytes. The
