@@ -234,4 +234,75 @@ export const handlers = [
       { id: "u4", name: "Recent", email: "recent@test.com" },
     ]),
   ),
+
+  // Extractions
+  http.post(
+    `${API}/projects/:projectId/documents/:docId/versions/:versionId/extractions`,
+    async ({ request, params }) => {
+      const body = (await request.json()) as { file_size?: number };
+      return HttpResponse.json(
+        {
+          id: "ext-new",
+          document_id: params.docId,
+          document_version_id: params.versionId,
+          status: "pending",
+          tasks: [],
+          created_at: "2026-05-05T00:00:00Z",
+          updated_at: "2026-05-05T00:00:00Z",
+          _echo_file_size: body.file_size,
+        },
+        { status: 201 },
+      );
+    },
+  ),
+
+  http.get(`${API}/extractions/:extractionId`, ({ params }) =>
+    HttpResponse.json({
+      extraction: {
+        id: params.extractionId,
+        document_id: "d1",
+        document_version_id: "v1",
+        status: "completed",
+        tasks: [
+          { name: "Implement login", estimate_hint: "small" },
+          { name: "Wire OAuth" },
+        ],
+        created_at: "2026-05-05T00:00:00Z",
+        updated_at: "2026-05-05T00:01:00Z",
+        completed_at: "2026-05-05T00:01:00Z",
+      },
+      events: [
+        {
+          id: "ev1",
+          extraction_id: params.extractionId,
+          from_status: "pending",
+          to_status: "processing",
+          actor: "worker",
+          created_at: "2026-05-05T00:00:30Z",
+        },
+      ],
+    }),
+  ),
+
+  http.post(`${API}/extractions/:extractionId/cancel`, () =>
+    new HttpResponse(null, { status: 204 }),
+  ),
+
+  http.post(`${API}/extractions/:extractionId/retry`, () =>
+    new HttpResponse(null, { status: 204 }),
+  ),
+
+  http.get(`${API}/projects/:projectId/extractions`, () =>
+    HttpResponse.json([
+      {
+        id: "ext1",
+        document_id: "d1",
+        document_version_id: "v1",
+        status: "completed",
+        tasks: [{ name: "Task A" }],
+        created_at: "2026-05-05T00:00:00Z",
+        updated_at: "2026-05-05T00:01:00Z",
+      },
+    ]),
+  ),
 ];
