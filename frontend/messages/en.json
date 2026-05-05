@@ -322,5 +322,32 @@
       "estimation_submitted": "{name} submitted an estimation",
       "estimation_aggregated": "Estimation aggregated by {name}"
     }
+  },
+  "extraction": {
+    "status": {
+      "pending": "Queued",
+      "processing": "Extracting tasks",
+      "completed": "Ready",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "tasksFound": "Tasks found: {count}",
+    "noTasks": "No tasks found",
+    "estimateHint": "Estimate",
+    "actions": {
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "createEstimation": "Create estimation"
+    },
+    "confirmCancel": "Cancel task extraction?",
+    "reason": {
+      "encrypted": "Could not read document: file is password-protected.",
+      "llmService": "LLM service is temporarily unavailable. Try again later.",
+      "promptInjection": "Suspicious text detected in the document. If the file is legitimate, contact an administrator.",
+      "schemaInvalid": "Could not parse the model's response — try again in a minute.",
+      "pipelineError": "An error occurred while processing the document. Try again.",
+      "cancelled": "Document processing was cancelled.",
+      "unknown": "Could not extract tasks from the document."
+    }
   }
 }
