@@ -39,6 +39,17 @@ function emptyRow(): TaskRow {
   };
 }
 
+function rowFromTask(name: string): TaskRow {
+  return {
+    key: crypto.randomUUID(),
+    task_name: name,
+    min_hours: "",
+    likely_hours: "",
+    max_hours: "",
+    note: "",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -46,13 +57,22 @@ function emptyRow(): TaskRow {
 interface EstimationFormProps {
   projectId: string;
   onCreated?: () => void;
+  initialTasks?: string[];
 }
 
-export function EstimationForm({ projectId, onCreated }: EstimationFormProps) {
+export function EstimationForm({
+  projectId,
+  onCreated,
+  initialTasks,
+}: EstimationFormProps) {
   const t = useTranslations("estimation");
   const queryClient = useQueryClient();
 
-  const [rows, setRows] = useState<TaskRow[]>([emptyRow()]);
+  const [rows, setRows] = useState<TaskRow[]>(() =>
+    initialTasks && initialTasks.length > 0
+      ? initialTasks.map(rowFromTask)
+      : [emptyRow()],
+  );
 
   const mutation = useMutation({
     mutationFn: (items: CreateEstimationItemInput[]) =>

@@ -16,9 +16,13 @@ import { ExtractionStatusBadge } from "./extraction-status-badge";
 
 interface ExtractionPanelProps {
   extractionId: string;
+  onCreateEstimation?: (taskNames: string[]) => void;
 }
 
-export function ExtractionPanel({ extractionId }: ExtractionPanelProps) {
+export function ExtractionPanel({
+  extractionId,
+  onCreateEstimation,
+}: ExtractionPanelProps) {
   const t = useTranslations("extraction");
   const tCommon = useTranslations("common");
   const queryClient = useQueryClient();
@@ -90,6 +94,17 @@ export function ExtractionPanel({ extractionId }: ExtractionPanelProps) {
               {t("actions.retry")}
             </Button>
           )}
+          {status === "completed" &&
+            tasks.length > 0 &&
+            onCreateEstimation && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => onCreateEstimation(tasks.map((task) => task.name))}
+              >
+                {t("actions.createEstimation")}
+              </Button>
+            )}
         </div>
       </div>
 
