@@ -71,6 +71,7 @@ func New(
 	estimations domain.EstimationManager,
 	documents domain.DocumentManager,
 	passwords domain.PasswordResetManager,
+	extractions domain.ExtractionTrigger,
 ) *BotUsecase {
 	return &BotUsecase{
 		sessions:     NewSessionManager(sessionRepo),
@@ -80,7 +81,7 @@ func New(
 		memory:       memoryRepo,
 		prefs:        prefsRepo,
 		telegram:     tg,
-		executor:     NewIntentExecutor(projects, members, estimations, documents, passwords),
+		executor:     NewIntentExecutor(projects, members, estimations, documents, passwords, extractions),
 		llmFactory:   llmFactory,
 		envLLM:       envLLM,
 		botUsername:  botUsername,
@@ -371,15 +372,30 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 	}
 
 	reader := bytes.NewReader(data)
-	err = uc.executor.documents.Upload(ctx, projectID, title, doc.FileName, doc.FileSize, fileType, reader, userID)
+	docID, versionID, err := uc.executor.documents.Upload(ctx, projectID, title, doc.FileName, doc.FileSize, fileType, reader, userID)
 	if err != nil {
 		slog.ErrorContext(ctx, "uploadFile: Upload failed", slog.String("error", err.Error()))
 		_ = uc.telegram.SendMessage(ctx, chatID, llm.ExecuteError.Pick())
 		return nil
 	}
 
-	slog.InfoContext(ctx, "BotUsecase.uploadFile: success", slog.String("file_name", doc.FileName), slog.String("project_id", projectID))
+	slog.InfoContext(ctx, "BotUsecase.uploadFile: success", slog.String("file_name", doc.FileName), slog.String("project_id", projectID), slog.String("document_id", docID), slog.String("document_version_id", versionID))
 	_ = uc.telegram.SendMarkdown(ctx, chatID, messages.FileUploadedToProject(doc.FileName))
+
+	// Trigger async extraction. Failure to enqueue is logged and
+	// surfaced softly — the file is already saved in S3 and the
+	// extraction can be retried via the API. No bot-side error
+	// noise to the user; the absence of the follow-up tasks message
+	// is the failure signal until PR-B5 pair 3 lands the polling
+	// + reply flow.
+	if uc.executor.extractions != nil {
+		extractionID, extErr := uc.executor.extractions.RequestExtraction(ctx, docID, versionID, doc.FileSize, "user:"+userID)
+		if extErr != nil {
+			slog.ErrorContext(ctx, "uploadFile: RequestExtraction failed", slog.String("error", extErr.Error()), slog.String("document_id", docID))
+		} else {
+			slog.InfoContext(ctx, "uploadFile: extraction requested", slog.String("extraction_id", extractionID), slog.String("document_id", docID))
+		}
+	}
 
 	// Save to memory.
 	go uc.saveMemory(context.WithoutCancel(ctx), userID, chatID, messages.MemoryUserUploadedFile(doc.FileName), messages.MemoryEstiFileUploaded, string(domain.IntentUploadDocument))

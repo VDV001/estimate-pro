@@ -2022,6 +2022,7 @@ func TestProcessMessage_ResolveLLMParser_NoConfig(t *testing.T) {
 		deps.estimations,
 		deps.documents,
 		nil,
+		deps.extractions,
 	)
 
 	var sentText string
