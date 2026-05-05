@@ -23,6 +23,7 @@ type fakeRepo struct {
 	createErr       error
 	getByIDErr      error
 	updateStatusErr error
+	listErr         error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -93,7 +94,14 @@ func (f *fakeRepo) GetEvents(_ context.Context, id string) ([]*domain.Extraction
 }
 
 func (f *fakeRepo) ListByProject(_ context.Context, _ string) ([]*domain.Extraction, error) {
-	return nil, nil
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	out := make([]*domain.Extraction, 0, len(f.extractions))
+	for _, e := range f.extractions {
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // Compile-time assertion: fakeRepo satisfies the production port.
@@ -475,4 +483,53 @@ func TestExtractor_RetryExtraction_EnqueuesAfterTransition(t *testing.T) {
 	if enqueuer.calls[0] != ext.ID {
 		t.Errorf("Enqueue got ID=%q, want %q", enqueuer.calls[0], ext.ID)
 	}
+}
+
+// TestExtractor_ListByProject backfills coverage for the
+// ListByProject pass-through — the use case is a thin forward to
+// the repository, so the assertion is on the contract: empty
+// repo returns an empty slice + nil error, populated repo returns
+// every extraction, repo errors propagate verbatim. Fix-forward
+// item #1 from PR-B2 reviewer (no per-method TDD pair existed).
+func TestExtractor_ListByProject(t *testing.T) {
+	t.Run("empty_repo_returns_empty_slice", func(t *testing.T) {
+		repo := newFakeRepo()
+		uc := usecase.NewExtractor(repo, 0, nil)
+		got, err := uc.ListByProject(t.Context(), "proj-1")
+		if err != nil {
+			t.Fatalf("ListByProject: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("len=%d, want 0", len(got))
+		}
+	})
+
+	t.Run("populated_repo_returns_all_extractions", func(t *testing.T) {
+		repo := newFakeRepo()
+		ext1 := mustNewExtraction(t, "doc-1", "ver-1")
+		ext2 := mustNewExtraction(t, "doc-2", "ver-2")
+		repo.extractions[ext1.ID] = ext1
+		repo.extractions[ext2.ID] = ext2
+
+		uc := usecase.NewExtractor(repo, 0, nil)
+		got, err := uc.ListByProject(t.Context(), "proj-1")
+		if err != nil {
+			t.Fatalf("ListByProject: %v", err)
+		}
+		if len(got) != 2 {
+			t.Errorf("len=%d, want 2", len(got))
+		}
+	})
+
+	t.Run("repo_error_propagates", func(t *testing.T) {
+		repo := newFakeRepo()
+		boom := errors.New("db down")
+		repo.listErr = boom
+
+		uc := usecase.NewExtractor(repo, 0, nil)
+		_, err := uc.ListByProject(t.Context(), "proj-1")
+		if !errors.Is(err, boom) {
+			t.Fatalf("err=%v, want errors.Is %v", err, boom)
+		}
+	})
 }
