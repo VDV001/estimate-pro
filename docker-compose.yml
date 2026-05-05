@@ -37,12 +37,10 @@ services:
       - "--api-timeout=300s"
     ports:
       - "3001:3000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+    # gotenberg/gotenberg:8 ships on distroless without
+    # curl/wget/bash; relying on /dev/tcp inside the container is
+    # not portable. We omit the healthcheck and rely on the GotenbergConverter's
+    # 5xx → ErrGotenbergUnavailable mapping for runtime visibility.
 
   backend:
     build:
