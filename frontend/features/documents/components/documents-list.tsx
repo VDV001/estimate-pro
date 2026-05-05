@@ -121,6 +121,8 @@ export function DocumentsList({
     return acc;
   }, {});
 
+  const [extractionKickoffFailed, setExtractionKickoffFailed] = useState(false);
+
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
       const uploaded = await uploadDocument(projectId, file);
@@ -139,10 +141,12 @@ export function DocumentsList({
           queryClient.invalidateQueries({
             queryKey: ["extractions", projectId],
           });
+          setExtractionKickoffFailed(false);
         } catch {
-          // Extraction kickoff is best-effort — the document is already
-          // saved and the panel will surface a manual retry path once
-          // the user revisits the project.
+          // Upload itself succeeded; only the extraction kickoff failed.
+          // Surface a non-blocking inline message so the user knows tasks
+          // weren't extracted automatically and can re-upload if needed.
+          setExtractionKickoffFailed(true);
         }
       }
     },
@@ -204,6 +208,11 @@ export function DocumentsList({
         <div className="flex items-center gap-2">
           {uploadMutation.isError && (
             <p className="text-xs text-destructive">{t("uploadError")}</p>
+          )}
+          {extractionKickoffFailed && !uploadMutation.isError && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {t("extractionKickoffFailed")}
+            </p>
           )}
           <Button
             variant="outline"

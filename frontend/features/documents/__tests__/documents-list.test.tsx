@@ -178,6 +178,22 @@ describe("DocumentsList", () => {
       expect(requestExtractionMock).not.toHaveBeenCalled();
     });
 
+    it("shows inline message when extraction kickoff fails", async () => {
+      setupUploadHandler({ docId: "d-new", versionId: "v-new", versionFileSize: 100 });
+      requestExtractionMock.mockRejectedValueOnce(new Error("kickoff failed"));
+
+      render(<DocumentsList projectId="p1" />, { wrapper: makeWrapper() });
+      await screen.findByText("spec.pdf");
+
+      await uploadFile(
+        new File(["pdf-bytes"], "spec.pdf", { type: "application/pdf" }),
+      );
+
+      expect(
+        await screen.findByText("documents.extractionKickoffFailed"),
+      ).toBeInTheDocument();
+    });
+
     it("does not trigger extraction if upload fails", async () => {
       server.use(
         http.post(`${API}/projects/:id/documents`, () =>
