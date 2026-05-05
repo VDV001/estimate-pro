@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Send, Trash2, Clock, ChevronDown, ChevronRight } from "lucide-react";
@@ -48,14 +48,15 @@ export function EstimationList({
   const tCommon = useTranslations("common");
   const queryClient = useQueryClient();
 
-  const [showForm, setShowForm] = useState(false);
+  // Open the form automatically when initialTasks arrived from
+  // the parent. The page-level callsite remounts EstimationList
+  // via a `key` prop tied to initialTasks identity, so the lazy
+  // initializer runs on every fresh hand-off — no useEffect, no
+  // cascading render.
+  const [showForm, setShowForm] = useState(() =>
+    Boolean(initialTasks && initialTasks.length > 0),
+  );
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (initialTasks && initialTasks.length > 0) {
-      setShowForm(true);
-    }
-  }, [initialTasks]);
 
   const {
     data: estimations,
