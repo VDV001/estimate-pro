@@ -135,7 +135,7 @@ func TestExtractor_CancelExtraction(t *testing.T) {
 	ext := mustNewExtraction(t, "doc-1", "ver-1")
 	repo.extractions[ext.ID] = ext
 
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	err := uc.CancelExtraction(t.Context(), ext.ID, "user:42")
 	if err != nil {
 		t.Fatalf("CancelExtraction: %v", err)
@@ -161,7 +161,7 @@ func TestExtractor_CancelExtraction(t *testing.T) {
 
 func TestExtractor_CancelExtraction_NotFound(t *testing.T) {
 	repo := newFakeRepo()
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	err := uc.CancelExtraction(t.Context(), "ghost-id", "user:42")
 	if !errors.Is(err, domain.ErrExtractionNotFound) {
 		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrExtractionNotFound)
@@ -179,7 +179,7 @@ func TestExtractor_CancelExtraction_AlreadyTerminal(t *testing.T) {
 	}
 	repo.extractions[ext.ID] = ext
 
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	err := uc.CancelExtraction(t.Context(), ext.ID, "user:42")
 	if !errors.Is(err, domain.ErrInvalidStatusTransition) {
 		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrInvalidStatusTransition)
@@ -202,7 +202,7 @@ func TestExtractor_RetryExtraction(t *testing.T) {
 	}
 	repo.extractions[ext.ID] = ext
 
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	if err := uc.RetryExtraction(t.Context(), ext.ID, "user:42"); err != nil {
 		t.Fatalf("RetryExtraction: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestExtractor_RetryExtraction_RejectsNonFailed(t *testing.T) {
 	ext := mustNewExtraction(t, "doc-1", "ver-1")
 	repo.extractions[ext.ID] = ext // pending, never failed
 
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	err := uc.RetryExtraction(t.Context(), ext.ID, "user:42")
 	if !errors.Is(err, domain.ErrInvalidStatusTransition) {
 		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrInvalidStatusTransition)
@@ -245,7 +245,7 @@ func TestExtractor_RetryExtraction_RejectsNonFailed(t *testing.T) {
 
 func TestExtractor_RetryExtraction_NotFound(t *testing.T) {
 	repo := newFakeRepo()
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	err := uc.RetryExtraction(t.Context(), "ghost", "user:42")
 	if !errors.Is(err, domain.ErrExtractionNotFound) {
 		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrExtractionNotFound)
@@ -268,7 +268,7 @@ func TestExtractor_GetExtraction(t *testing.T) {
 	ev2, _ := domain.NewExtractionEvent(ext.ID, domain.StatusProcessing, domain.StatusFailed, "boom", "worker")
 	repo.events = append(repo.events, ev2)
 
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	gotExt, gotEvents, err := uc.GetExtraction(t.Context(), ext.ID)
 	if err != nil {
 		t.Fatalf("GetExtraction: %v", err)
@@ -283,7 +283,7 @@ func TestExtractor_GetExtraction(t *testing.T) {
 
 func TestExtractor_GetExtraction_NotFound(t *testing.T) {
 	repo := newFakeRepo()
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	_, _, err := uc.GetExtraction(t.Context(), "ghost")
 	if !errors.Is(err, domain.ErrExtractionNotFound) {
 		t.Fatalf("err=%v, want errors.Is %v", err, domain.ErrExtractionNotFound)
@@ -294,7 +294,7 @@ func TestExtractor_GetExtraction_NotFound(t *testing.T) {
 
 func TestExtractor_RequestExtraction_NoActive_CreatesPending(t *testing.T) {
 	repo := newFakeRepo()
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 
 	ext, err := uc.RequestExtraction(t.Context(), "doc-1", "ver-1", 1024, "user:42")
 	if err != nil {
@@ -322,7 +322,7 @@ func TestExtractor_RequestExtraction_ActiveExists_ReturnsExisting(t *testing.T) 
 	}
 	repo.extractions[existing.ID] = existing
 
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	got, err := uc.RequestExtraction(t.Context(), "doc-1", "ver-1", 1024, "user:42")
 	if err != nil {
 		t.Fatalf("RequestExtraction: %v", err)
@@ -342,7 +342,7 @@ func TestExtractor_RequestExtraction_CompletedExists_ReturnsExisting(t *testing.
 	_ = existing.MarkCompleted(nil)
 	repo.extractions[existing.ID] = existing
 
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	got, err := uc.RequestExtraction(t.Context(), "doc-1", "ver-1", 1024, "user:42")
 	if err != nil {
 		t.Fatalf("RequestExtraction: %v", err)
@@ -359,7 +359,7 @@ func TestExtractor_RequestExtraction_FailedExists_CreatesNew(t *testing.T) {
 	_ = prev.MarkFailed("transient")
 	repo.extractions[prev.ID] = prev
 
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	got, err := uc.RequestExtraction(t.Context(), "doc-1", "ver-1", 1024, "user:42")
 	if err != nil {
 		t.Fatalf("RequestExtraction: %v", err)
@@ -378,7 +378,7 @@ func TestExtractor_RequestExtraction_FailedExists_CreatesNew(t *testing.T) {
 func TestExtractor_RequestExtraction_SizeGuard(t *testing.T) {
 	repo := newFakeRepo()
 	const maxBytes int64 = 1024
-	uc := usecase.NewExtractor(repo, maxBytes)
+	uc := usecase.NewExtractor(repo, maxBytes, nil)
 
 	_, err := uc.RequestExtraction(t.Context(), "doc-1", "ver-1", maxBytes+1, "user:42")
 	if !errors.Is(err, domain.ErrDocumentTooLarge) {
@@ -392,7 +392,7 @@ func TestExtractor_RequestExtraction_SizeGuard(t *testing.T) {
 func TestExtractor_RequestExtraction_SizeAtLimit_OK(t *testing.T) {
 	repo := newFakeRepo()
 	const maxBytes int64 = 1024
-	uc := usecase.NewExtractor(repo, maxBytes)
+	uc := usecase.NewExtractor(repo, maxBytes, nil)
 
 	if _, err := uc.RequestExtraction(t.Context(), "doc-1", "ver-1", maxBytes, "user:42"); err != nil {
 		t.Fatalf("size==maxBytes should pass, got %v", err)
@@ -401,7 +401,7 @@ func TestExtractor_RequestExtraction_SizeAtLimit_OK(t *testing.T) {
 
 func TestExtractor_RequestExtraction_RejectsEmptyIDs(t *testing.T) {
 	repo := newFakeRepo()
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 
 	cases := []struct {
 		name      string
