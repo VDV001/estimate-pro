@@ -293,6 +293,7 @@
     "fileSize": "Size",
     "uploadError": "File upload error",
     "deleteError": "Error deleting document",
+    "extractionKickoffFailed": "Document uploaded, but task extraction did not start. Re-upload to retry.",
     "signed": "Signed",
     "sign": "Sign",
     "finalVersion": "Final",
