@@ -3,9 +3,11 @@
 
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { downloadReport, REPORT_FORMATS, type ReportFormat } from "@/features/report/api";
 import {
   ArrowLeft,
   FileText,
@@ -49,6 +51,7 @@ export default function ProjectDetailPage({
   const tCommon = useTranslations("common");
 
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [pendingEstimationTasks, setPendingEstimationTasks] = useState<
     string[] | undefined
@@ -58,6 +61,20 @@ export default function ProjectDetailPage({
     setPendingEstimationTasks(taskNames);
     setActiveTab("estimations");
   };
+
+  // Auto-trigger report download when arriving from a bot deeplink
+  // (?download=report&format=pdf|md|docx). Guarded by a ref so the
+  // effect fires once per mount even if React strict-mode replays it.
+  const autoDownloadFiredRef = useRef(false);
+  useEffect(() => {
+    if (autoDownloadFiredRef.current) return;
+    if (searchParams.get("download") !== "report") return;
+    const format = searchParams.get("format") ?? "pdf";
+    if (!REPORT_FORMATS.includes(format as ReportFormat)) return;
+    autoDownloadFiredRef.current = true;
+    setActiveTab("estimations");
+    void downloadReport(id, format as ReportFormat);
+  }, [searchParams, id]);
 
   const {
     data: project,
