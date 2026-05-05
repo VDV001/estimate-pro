@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -161,28 +162,35 @@ func reasonForPipelineError(err error) string {
 func (w *ExtractionWorker) Process(ctx context.Context, args ExtractionArgs) error {
 	ext, err := w.store.GetByID(ctx, args.ExtractionID)
 	if err != nil {
+		slog.ErrorContext(ctx, "extractor.worker: load extraction failed", "extraction_id", args.ExtractionID, "error", err)
 		return fmt.Errorf("worker.Process load extraction %q: %w", args.ExtractionID, err)
 	}
 	if ext.Status != domain.StatusPending {
+		slog.InfoContext(ctx, "extractor.worker: skip non-pending extraction (idempotent)", "extraction_id", ext.ID, "status", string(ext.Status))
 		return nil
 	}
+	slog.InfoContext(ctx, "extractor.worker: start", "extraction_id", ext.ID, "document_id", ext.DocumentID, "document_version_id", ext.DocumentVersionID)
 	if err := w.transition(ctx, ext, (*domain.Extraction).MarkProcessing, ""); err != nil {
 		return fmt.Errorf("worker.Process transition pending->processing: %w", err)
 	}
 
 	if err := w.runPipeline(ctx, ext); err != nil {
+		reason := reasonForPipelineError(err)
 		// If the pipeline did not already record a failure (security /
 		// schema branches call markFailed themselves), capture it now
 		// so the extraction never lingers in 'processing' after the
 		// worker returns. River retry semantics depend on the audit
 		// trail being in sync with the lifecycle.
 		if ext.Status == domain.StatusProcessing {
-			if markErr := w.markFailed(ctx, ext, reasonForPipelineError(err)); markErr != nil {
+			if markErr := w.markFailed(ctx, ext, reason); markErr != nil {
+				slog.ErrorContext(ctx, "extractor.worker: failed to record pipeline failure", "extraction_id", ext.ID, "reason", reason, "mark_error", markErr, "pipeline_error", err)
 				return fmt.Errorf("worker.Process recover MarkFailed for extraction %q: %w (original: %v)", ext.ID, markErr, err)
 			}
 		}
+		slog.ErrorContext(ctx, "extractor.worker: pipeline failed", "extraction_id", ext.ID, "reason", reason, "error", err)
 		return fmt.Errorf("worker.Process pipeline for extraction %q: %w", ext.ID, err)
 	}
+	slog.InfoContext(ctx, "extractor.worker: completed", "extraction_id", ext.ID)
 	return nil
 }
 
