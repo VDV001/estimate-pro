@@ -19,13 +19,19 @@ import (
 // maxBytes caps the file size accepted by RequestExtraction; a
 // zero or negative value disables the guard, which is what unit
 // tests want when the size path is not under examination.
+//
+// enqueuer dispatches an async river job after a new extraction is
+// persisted (RequestExtraction) or re-queued (RetryExtraction). A nil
+// value is accepted for unit tests that do not exercise the enqueue
+// path; the composition root always supplies a real implementation.
 type Extractor struct {
 	repo     ExtractionRepository
 	maxBytes int64
+	enqueuer JobEnqueuer
 }
 
-func NewExtractor(repo ExtractionRepository, maxBytes int64) *Extractor {
-	return &Extractor{repo: repo, maxBytes: maxBytes}
+func NewExtractor(repo ExtractionRepository, maxBytes int64, enqueuer JobEnqueuer) *Extractor {
+	return &Extractor{repo: repo, maxBytes: maxBytes, enqueuer: enqueuer}
 }
 
 // RequestExtraction is the entry point for "extract tasks from this
@@ -75,6 +81,11 @@ func (u *Extractor) RequestExtraction(ctx context.Context, documentID, documentV
 	if err := u.repo.Create(ctx, ext); err != nil {
 		return nil, fmt.Errorf("request: create: %w", err)
 	}
+	if u.enqueuer != nil {
+		if err := u.enqueuer.Enqueue(ctx, ext.ID); err != nil {
+			return nil, fmt.Errorf("request: enqueue: %w", err)
+		}
+	}
 	return ext, nil
 }
 
@@ -92,7 +103,15 @@ func (u *Extractor) CancelExtraction(ctx context.Context, id, actor string) erro
 // ErrInvalidStatusTransition; missing rows surface
 // ErrExtractionNotFound.
 func (u *Extractor) RetryExtraction(ctx context.Context, id, actor string) error {
-	return u.transition(ctx, id, actor, "retry", (*domain.Extraction).MarkRetry)
+	if err := u.transition(ctx, id, actor, "retry", (*domain.Extraction).MarkRetry); err != nil {
+		return err
+	}
+	if u.enqueuer != nil {
+		if err := u.enqueuer.Enqueue(ctx, id); err != nil {
+			return fmt.Errorf("retry: enqueue: %w", err)
+		}
+	}
+	return nil
 }
 
 // GetExtraction loads the aggregate and the full audit trail. Both

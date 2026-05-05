@@ -188,7 +188,7 @@ func main() {
 	var extractorH *extractorHandler.Handler
 	if cfg.Extractor.Enabled {
 		extractorRepository := extractorRepo.NewPostgresExtractionRepository(pool)
-		extractorUC := extractorUsecase.NewExtractor(extractorRepository, cfg.Extractor.MaxBytes)
+		extractorUC := extractorUsecase.NewExtractor(extractorRepository, cfg.Extractor.MaxBytes, nil /* river enqueuer wired below */)
 		extractorH = extractorHandler.New(extractorUC)
 	}
 

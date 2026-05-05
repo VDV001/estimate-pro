@@ -103,7 +103,7 @@ func (f *fakeRepo) ListByProject(_ context.Context, _ string) ([]*domain.Extract
 func newTestHandler(t *testing.T) (*handler.Handler, *fakeRepo) {
 	t.Helper()
 	repo := newFakeRepo()
-	uc := usecase.NewExtractor(repo, 0)
+	uc := usecase.NewExtractor(repo, 0, nil)
 	return handler.New(uc), repo
 }
 
@@ -181,7 +181,7 @@ func TestHandler_RequestExtraction_BadBody(t *testing.T) {
 func TestHandler_RequestExtraction_PayloadTooLarge(t *testing.T) {
 	repo := newFakeRepo()
 	const maxBytes int64 = 1024
-	uc := usecase.NewExtractor(repo, maxBytes)
+	uc := usecase.NewExtractor(repo, maxBytes, nil)
 	h := handler.New(uc)
 	r := newRouter(h)
 
