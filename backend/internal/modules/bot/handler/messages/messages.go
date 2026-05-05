@@ -107,8 +107,12 @@ type ExtractionTask struct {
 }
 
 // ExtractionFailed maps a failure reason from the extractor module
-// onto a Russian operator-friendly message. Specific reasons get
-// dedicated copy; anything else falls through to a generic line.
+// onto a Russian operator-friendly message. Each known sentinel
+// from extractor/worker.reasonForPipelineError gets dedicated copy
+// so users never see English technical strings. Unknown reasons
+// fall through to a generic Russian line — the raw English value
+// is dropped, not concatenated, so a future sentinel addition
+// won't leak through this mapping.
 func ExtractionFailed(reason string) string {
 	switch reason {
 	case "encrypted file (password protected)":
@@ -117,10 +121,16 @@ func ExtractionFailed(reason string) string {
 		return "Не удалось извлечь задачи: сервис LLM временно недоступен. Попробуйте позже."
 	case "prompt injection detected":
 		return "Не удалось обработать документ: подозрительный текст. Если файл легитимный — напишите администратору."
+	case "LLM response failed schema validation":
+		return "Не удалось разобрать ответ модели — попробуйте ещё раз через минуту."
+	case "pipeline error":
+		return "Произошла ошибка при обработке документа. Попробуйте ещё раз."
+	case "cancelled":
+		return "Обработка документа отменена."
 	case "":
 		return "Не удалось извлечь задачи из документа."
 	default:
-		return "Не удалось извлечь задачи: " + reason
+		return "Не удалось извлечь задачи из документа."
 	}
 }
 

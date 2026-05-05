@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/VDV001/estimate-pro/backend/internal/modules/bot/domain"
@@ -53,6 +54,11 @@ type BotUsecase struct {
 	// SetExtractionPollingForTest to keep their runtime sub-second.
 	extractionPollInterval time.Duration
 	extractionPollMax      int
+
+	// extractionPollWG tracks in-flight polling goroutines so tests
+	// can wait for them (WaitForExtractionPollsForTest) and graceful
+	// shutdown can drain them.
+	extractionPollWG sync.WaitGroup
 }
 
 // Default extraction polling cadence. 3 seconds × 100 attempts =
@@ -112,6 +118,16 @@ func New(
 func (uc *BotUsecase) SetExtractionPollingForTest(interval time.Duration, maxAttempts int) {
 	uc.extractionPollInterval = interval
 	uc.extractionPollMax = maxAttempts
+}
+
+// WaitForExtractionPollsForTest blocks until every in-flight
+// background polling goroutine spawned by uploadFile has finished.
+// Production code does not need this; graceful shutdown calls it
+// from the composition root after the HTTP server stops accepting
+// new requests, and tests call it before asserting that the reply
+// markdowns landed.
+func (uc *BotUsecase) WaitForExtractionPollsForTest() {
+	uc.extractionPollWG.Wait()
 }
 
 // ProcessMessage handles an incoming Telegram message update.
@@ -407,9 +423,17 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 	slog.InfoContext(ctx, "BotUsecase.uploadFile: success", slog.String("file_name", doc.FileName), slog.String("project_id", projectID), slog.String("document_id", docID), slog.String("document_version_id", versionID))
 	_ = uc.telegram.SendMarkdown(ctx, chatID, messages.FileUploadedToProject(doc.FileName))
 
-	// Trigger async extraction + poll for completion. Failure to
-	// enqueue is logged and surfaced softly — the file is already
-	// saved in S3 and the extraction can be retried via the API.
+	// Trigger async extraction + spawn polling goroutine. Failure
+	// to enqueue is logged and surfaced softly — the file is
+	// already saved in S3 and the extraction can be retried via
+	// the API. The polling itself runs in a detached goroutine
+	// because this code path executes inside the Telegram webhook
+	// handler — blocking the HTTP request for ≤5min would (a) hit
+	// Telegram's 60s webhook timeout and trigger duplicate update
+	// retries, and (b) pin an HTTP server goroutine for the whole
+	// extraction lifetime. context.WithoutCancel + a fresh timeout
+	// detaches the goroutine from the request context so graceful
+	// shutdown can drain it via WaitForExtractionPollsForTest.
 	if uc.executor.extractions != nil {
 		extractionID, extErr := uc.executor.extractions.RequestExtraction(ctx, docID, versionID, doc.FileSize, "user:"+userID)
 		if extErr != nil {
@@ -417,7 +441,15 @@ func (uc *BotUsecase) uploadFile(ctx context.Context, chatID, userID, projectID 
 		} else {
 			slog.InfoContext(ctx, "uploadFile: extraction requested", slog.String("extraction_id", extractionID), slog.String("document_id", docID))
 			_ = uc.telegram.SendMarkdown(ctx, chatID, messages.ExtractionAcknowledged)
-			uc.pollExtractionAndReply(ctx, chatID, extractionID)
+
+			pollTimeout := uc.extractionPollInterval*time.Duration(uc.extractionPollMax) + time.Second
+			uc.extractionPollWG.Add(1)
+			go func(extID string) {
+				defer uc.extractionPollWG.Done()
+				pollCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), pollTimeout)
+				defer cancel()
+				uc.pollExtractionAndReply(pollCtx, chatID, extID)
+			}(extractionID)
 		}
 	}
 
