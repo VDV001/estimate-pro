@@ -324,6 +324,11 @@
       "estimation_aggregated": "Estimation aggregated by {name}"
     }
   },
+  "report": {
+    "download": "Download report",
+    "downloading": "Preparing...",
+    "error": "Could not download the report"
+  },
   "extraction": {
     "status": {
       "pending": "Queued",
