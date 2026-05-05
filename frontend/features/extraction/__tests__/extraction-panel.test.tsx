@@ -201,4 +201,65 @@ describe("ExtractionPanel", () => {
     );
     expect(container.firstChild).toBeNull();
   });
+
+  describe("createEstimation hand-off", () => {
+    it("does not render createEstimation button when no callback provided", () => {
+      hookState.data = envelope("completed", {
+        tasks: [{ name: "T1" }, { name: "T2" }],
+      });
+      render(<ExtractionPanel extractionId="ext1" />, {
+        wrapper: makeWrapper(),
+      });
+      expect(
+        screen.queryByText("extraction.actions.createEstimation"),
+      ).toBeNull();
+    });
+
+    it("renders createEstimation button when completed with tasks + callback", () => {
+      hookState.data = envelope("completed", {
+        tasks: [{ name: "T1" }, { name: "T2" }],
+      });
+      render(
+        <ExtractionPanel
+          extractionId="ext1"
+          onCreateEstimation={() => {}}
+        />,
+        { wrapper: makeWrapper() },
+      );
+      expect(
+        screen.getByText("extraction.actions.createEstimation"),
+      ).toBeInTheDocument();
+    });
+
+    it("does not render createEstimation button when completed but tasks empty", () => {
+      hookState.data = envelope("completed", { tasks: [] });
+      render(
+        <ExtractionPanel
+          extractionId="ext1"
+          onCreateEstimation={() => {}}
+        />,
+        { wrapper: makeWrapper() },
+      );
+      expect(
+        screen.queryByText("extraction.actions.createEstimation"),
+      ).toBeNull();
+    });
+
+    it("calls onCreateEstimation with task names on click", async () => {
+      const user = userEvent.setup();
+      const onCreate = vi.fn();
+      hookState.data = envelope("completed", {
+        tasks: [{ name: "Implement login" }, { name: "Wire OAuth" }],
+      });
+      render(
+        <ExtractionPanel extractionId="ext1" onCreateEstimation={onCreate} />,
+        { wrapper: makeWrapper() },
+      );
+
+      await user.click(
+        screen.getByText("extraction.actions.createEstimation"),
+      );
+      expect(onCreate).toHaveBeenCalledWith(["Implement login", "Wire OAuth"]);
+    });
+  });
 });

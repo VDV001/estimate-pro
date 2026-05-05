@@ -107,4 +107,56 @@ describe("EstimationForm", () => {
       expect(onCreated).toHaveBeenCalled();
     });
   });
+
+  describe("initialTasks pre-fill", () => {
+    it("pre-fills one row per task name when initialTasks given", () => {
+      render(
+        <EstimationForm
+          projectId="p1"
+          initialTasks={["Implement login", "Wire OAuth", "Add tests"]}
+        />,
+        { wrapper: makeWrapper() },
+      );
+
+      const inputs = screen.getAllByPlaceholderText(
+        "estimation.taskPlaceholder",
+      ) as HTMLInputElement[];
+      expect(inputs).toHaveLength(3);
+      expect(inputs[0].value).toBe("Implement login");
+      expect(inputs[1].value).toBe("Wire OAuth");
+      expect(inputs[2].value).toBe("Add tests");
+    });
+
+    it("pre-filled rows have empty hour fields (user enters PERT)", () => {
+      render(
+        <EstimationForm projectId="p1" initialTasks={["Task A"]} />,
+        { wrapper: makeWrapper() },
+      );
+
+      const hourInputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
+      // 3 hour inputs per row × 1 row = 3
+      expect(hourInputs).toHaveLength(3);
+      hourInputs.forEach((input) => expect(input.value).toBe(""));
+    });
+
+    it("falls back to one empty row when initialTasks is empty array", () => {
+      render(
+        <EstimationForm projectId="p1" initialTasks={[]} />,
+        { wrapper: makeWrapper() },
+      );
+      const inputs = screen.getAllByPlaceholderText(
+        "estimation.taskPlaceholder",
+      ) as HTMLInputElement[];
+      expect(inputs).toHaveLength(1);
+      expect(inputs[0].value).toBe("");
+    });
+
+    it("falls back to one empty row when initialTasks is undefined", () => {
+      render(<EstimationForm projectId="p1" />, { wrapper: makeWrapper() });
+      const inputs = screen.getAllByPlaceholderText(
+        "estimation.taskPlaceholder",
+      ) as HTMLInputElement[];
+      expect(inputs).toHaveLength(1);
+    });
+  });
 });
