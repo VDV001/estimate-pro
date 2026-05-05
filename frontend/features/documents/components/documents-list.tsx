@@ -20,6 +20,12 @@ import {
   PREDEFINED_TAGS,
 } from "@/features/documents/api";
 import type { Document } from "@/features/documents/api";
+import {
+  listExtractions,
+  requestExtraction,
+} from "@/features/extraction/api";
+import type { Extraction } from "@/features/extraction/api";
+import { ExtractionPanel } from "@/features/extraction/components/extraction-panel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -43,6 +49,23 @@ const FILE_TYPE_COLORS: Record<string, string> = {
 };
 
 const ACCEPTED_TYPES = ".pdf,.docx,.doc,.xlsx,.xls,.md,.txt,.csv";
+
+// Formats whose contents the extractor pipeline can read. Mirrors the
+// readers shipped in backend/internal/shared/reader. Anything outside
+// this set (images, archives, …) skips the auto-extraction step so we
+// don't kick off a job that's guaranteed to fail.
+const EXTRACTION_SUPPORTED_EXTENSIONS = new Set([
+  "pdf",
+  "docx",
+  "txt",
+  "md",
+  "csv",
+  "xlsx",
+]);
+
+function isExtractionSupported(filename: string): boolean {
+  return EXTRACTION_SUPPORTED_EXTENSIONS.has(getFileExtension(filename));
+}
 
 const TAG_COLORS: Record<string, string> = {
   "на_подпись": "bg-blue-500/10 text-blue-500",
@@ -79,10 +102,45 @@ export function DocumentsList({ projectId }: DocumentsListProps) {
     queryFn: () => listDocuments(projectId),
   });
 
+  const { data: extractions } = useQuery({
+    queryKey: ["extractions", projectId],
+    queryFn: () => listExtractions(projectId),
+  });
+
+  const latestExtractionByDocument = (extractions ?? []).reduce<
+    Record<string, Extraction>
+  >((acc, ext) => {
+    const existing = acc[ext.document_id];
+    if (!existing || ext.created_at > existing.created_at) {
+      acc[ext.document_id] = ext;
+    }
+    return acc;
+  }, {});
+
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => uploadDocument(projectId, file),
-    onSuccess: () => {
+    mutationFn: async (file: File) => {
+      const uploaded = await uploadDocument(projectId, file);
+      return { uploaded, file };
+    },
+    onSuccess: async ({ uploaded, file }) => {
       queryClient.invalidateQueries({ queryKey: ["documents", projectId] });
+      if (isExtractionSupported(file.name)) {
+        try {
+          await requestExtraction(
+            projectId,
+            uploaded.document.id,
+            uploaded.version.id,
+            uploaded.version.file_size,
+          );
+          queryClient.invalidateQueries({
+            queryKey: ["extractions", projectId],
+          });
+        } catch {
+          // Extraction kickoff is best-effort — the document is already
+          // saved and the panel will surface a manual retry path once
+          // the user revisits the project.
+        }
+      }
     },
   });
 
@@ -180,6 +238,7 @@ export function DocumentsList({ projectId }: DocumentsListProps) {
               key={doc.id}
               doc={doc}
               projectId={projectId}
+              extractionId={latestExtractionByDocument[doc.id]?.id}
               onDownload={() => handleDownload(doc)}
               onDelete={() => handleDelete(doc)}
               isDeleting={deleteMutation.isPending}
@@ -202,12 +261,14 @@ export function DocumentsList({ projectId }: DocumentsListProps) {
 function DocumentCard({
   doc,
   projectId,
+  extractionId,
   onDownload,
   onDelete,
   isDeleting,
 }: {
   doc: Document;
   projectId: string;
+  extractionId: string | undefined;
   onDownload: () => void;
   onDelete: () => void;
   isDeleting: boolean;
@@ -377,6 +438,8 @@ function DocumentCard({
           )}
         </div>
       )}
+
+      {extractionId && <ExtractionPanel extractionId={extractionId} />}
     </div>
   );
 }
