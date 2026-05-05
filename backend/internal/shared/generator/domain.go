@@ -15,7 +15,10 @@
 // needs to be tolerant to whatever it receives.
 package generator
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // GenerationInput is the contract every Generator accepts. The
 // fields are intentionally generic — Title for the document
@@ -61,3 +64,21 @@ type Generator interface {
 // is empty. Consumers that omit the title (e.g. quick draft from a
 // partial domain object) still get a structurally valid document.
 const defaultTitle = "Документ"
+
+// TemplateFiller is the contract for placeholder-based document
+// generation: take an opaque template body (typically DOCX bytes),
+// substitute named placeholders, and return the filled bytes.
+// Distinct from Generator because the input shape differs — a
+// template carries the layout, the params carry the values.
+type TemplateFiller interface {
+	Fill(ctx context.Context, template []byte, params map[string]string) ([]byte, error)
+}
+
+// Sentinel errors. ADR-014 — every sentinel ships with a consumer
+// branch that returns it. Tests in this package supply the consumer
+// for the input-validation slices; the production consumer is the
+// PR-B7 report use case.
+var (
+	ErrEmptyTemplate   = errors.New("generator: template is empty")
+	ErrInvalidTemplate = errors.New("generator: template is not a valid DOCX (zip parse failed)")
+)
