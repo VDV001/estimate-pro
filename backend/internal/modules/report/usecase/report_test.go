@@ -5,6 +5,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -80,6 +81,74 @@ func TestReporter_RendersInRequestedFormat(t *testing.T) {
 	}
 	if rec.gotFormat != reportdomain.FormatPDF {
 		t.Errorf("renderer received format=%q, want pdf", rec.gotFormat)
+	}
+}
+
+func TestReporter_RejectsInvalidFormat(t *testing.T) {
+	rec := &recordingRenderer{}
+	uc := usecase.NewReporter(
+		&stubProject{resp: &projectdomain.Project{ID: "p1", Name: "P"}},
+		&stubAggregator{resp: &estimationdomain.AggregatedResult{
+			Items:      []*estimationdomain.AggregatedItem{{TaskName: "T", AvgPERTHours: 1}},
+			TotalHours: 1,
+		}},
+		rec,
+	)
+
+	_, err := uc.RenderEstimationReport(context.Background(), "p1", reportdomain.Format("yaml"))
+	if !errors.Is(err, reportdomain.ErrInvalidFormat) {
+		t.Errorf("err=%v, want errors.Is ErrInvalidFormat", err)
+	}
+	if rec.calls != 0 {
+		t.Errorf("renderer.calls=%d, want 0 (use case must reject before delegating)", rec.calls)
+	}
+}
+
+func TestReporter_RejectsEmptyAggregation(t *testing.T) {
+	rec := &recordingRenderer{}
+	uc := usecase.NewReporter(
+		&stubProject{resp: &projectdomain.Project{ID: "p1", Name: "P"}},
+		&stubAggregator{resp: &estimationdomain.AggregatedResult{
+			Items:      []*estimationdomain.AggregatedItem{},
+			TotalHours: 0,
+		}},
+		rec,
+	)
+
+	_, err := uc.RenderEstimationReport(context.Background(), "p1", reportdomain.FormatPDF)
+	if !errors.Is(err, reportdomain.ErrEmptyEstimation) {
+		t.Errorf("err=%v, want errors.Is ErrEmptyEstimation", err)
+	}
+	if rec.calls != 0 {
+		t.Errorf("renderer.calls=%d, want 0 on empty aggregation", rec.calls)
+	}
+}
+
+func TestReporter_PropagatesProjectError(t *testing.T) {
+	notFound := errors.New("project: not found")
+	rec := &recordingRenderer{}
+	uc := usecase.NewReporter(
+		&stubProject{err: notFound},
+		&stubAggregator{},
+		rec,
+	)
+	_, err := uc.RenderEstimationReport(context.Background(), "p1", reportdomain.FormatPDF)
+	if !errors.Is(err, notFound) {
+		t.Errorf("err=%v, want errors.Is notFound", err)
+	}
+}
+
+func TestReporter_PropagatesAggregatorError(t *testing.T) {
+	dbErr := errors.New("db: connection refused")
+	rec := &recordingRenderer{}
+	uc := usecase.NewReporter(
+		&stubProject{resp: &projectdomain.Project{ID: "p1", Name: "P"}},
+		&stubAggregator{err: dbErr},
+		rec,
+	)
+	_, err := uc.RenderEstimationReport(context.Background(), "p1", reportdomain.FormatPDF)
+	if !errors.Is(err, dbErr) {
+		t.Errorf("err=%v, want errors.Is dbErr", err)
 	}
 }
 
