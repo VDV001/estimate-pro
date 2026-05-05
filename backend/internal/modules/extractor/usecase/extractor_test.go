@@ -99,6 +99,24 @@ func (f *fakeRepo) ListByProject(_ context.Context, _ string) ([]*domain.Extract
 // Compile-time assertion: fakeRepo satisfies the production port.
 var _ usecase.ExtractionRepository = (*fakeRepo)(nil)
 
+// fakeEnqueuer is a JobEnqueuer test double that records which
+// extraction IDs were enqueued so tests can assert the call was made.
+type fakeEnqueuer struct {
+	calls []string
+	err   error
+}
+
+func (f *fakeEnqueuer) Enqueue(_ context.Context, extractionID string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.calls = append(f.calls, extractionID)
+	return nil
+}
+
+// Compile-time assertion: fakeEnqueuer satisfies the production port.
+var _ usecase.JobEnqueuer = (*fakeEnqueuer)(nil)
+
 // helper
 
 func mustNewExtraction(t *testing.T, docID, versionID string) *domain.Extraction {
@@ -401,5 +419,60 @@ func TestExtractor_RequestExtraction_RejectsEmptyIDs(t *testing.T) {
 				t.Fatalf("err=%v, want errors.Is %v", err, tt.wantErrIs)
 			}
 		})
+	}
+}
+
+// ---------- JobEnqueuer ----------
+
+func TestExtractor_RequestExtraction_EnqueuesAfterCreate(t *testing.T) {
+	repo := newFakeRepo()
+	enqueuer := &fakeEnqueuer{}
+	uc := usecase.NewExtractor(repo, 0, enqueuer)
+
+	ext, err := uc.RequestExtraction(t.Context(), "doc-1", "ver-1", 1024, "user:42")
+	if err != nil {
+		t.Fatalf("RequestExtraction: %v", err)
+	}
+	if len(enqueuer.calls) != 1 {
+		t.Fatalf("Enqueue calls=%d, want 1", len(enqueuer.calls))
+	}
+	if enqueuer.calls[0] != ext.ID {
+		t.Errorf("Enqueue got ID=%q, want %q", enqueuer.calls[0], ext.ID)
+	}
+}
+
+func TestExtractor_RequestExtraction_ActiveExists_NoEnqueue(t *testing.T) {
+	repo := newFakeRepo()
+	existing := mustNewExtraction(t, "doc-1", "ver-1")
+	_ = existing.MarkProcessing()
+	repo.extractions[existing.ID] = existing
+
+	enqueuer := &fakeEnqueuer{}
+	uc := usecase.NewExtractor(repo, 0, enqueuer)
+	if _, err := uc.RequestExtraction(t.Context(), "doc-1", "ver-1", 1024, "user:42"); err != nil {
+		t.Fatalf("RequestExtraction: %v", err)
+	}
+	if len(enqueuer.calls) != 0 {
+		t.Errorf("Enqueue calls=%d, want 0 (idempotent path returns existing)", len(enqueuer.calls))
+	}
+}
+
+func TestExtractor_RetryExtraction_EnqueuesAfterTransition(t *testing.T) {
+	repo := newFakeRepo()
+	ext := mustNewExtraction(t, "doc-1", "ver-1")
+	_ = ext.MarkProcessing()
+	_ = ext.MarkFailed("LLM timeout")
+	repo.extractions[ext.ID] = ext
+
+	enqueuer := &fakeEnqueuer{}
+	uc := usecase.NewExtractor(repo, 0, enqueuer)
+	if err := uc.RetryExtraction(t.Context(), ext.ID, "user:42"); err != nil {
+		t.Fatalf("RetryExtraction: %v", err)
+	}
+	if len(enqueuer.calls) != 1 {
+		t.Fatalf("Enqueue calls=%d, want 1", len(enqueuer.calls))
+	}
+	if enqueuer.calls[0] != ext.ID {
+		t.Errorf("Enqueue got ID=%q, want %q", enqueuer.calls[0], ext.ID)
 	}
 }
