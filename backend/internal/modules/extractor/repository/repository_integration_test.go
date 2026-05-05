@@ -192,9 +192,16 @@ func TestPostgresExtractionRepository_Create_RejectsDuplicateActive(t *testing.T
 
 	// Second pending extraction for the same (document, version) must fail —
 	// this is the idempotency guarantee from the UNIQUE partial index.
+	// The error must be detectable via errors.Is(...,
+	// domain.ErrExtractionAlreadyActive) so callers can branch on the
+	// idempotency case without inspecting pgconn types directly.
 	second := mustNewExtraction(t, fx.documentID, fx.documentVersionID)
-	if err := repo.Create(ctx, second); err == nil {
+	err := repo.Create(ctx, second)
+	if err == nil {
 		t.Fatal("Create: expected unique-violation error on duplicate active extraction, got nil")
+	}
+	if !errors.Is(err, domain.ErrExtractionAlreadyActive) {
+		t.Fatalf("Create err=%v, want errors.Is domain.ErrExtractionAlreadyActive", err)
 	}
 }
 
