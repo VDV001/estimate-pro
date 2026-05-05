@@ -85,9 +85,13 @@ const TAG_COLORS: Record<string, string> = {
 
 interface DocumentsListProps {
   projectId: string;
+  onCreateEstimation?: (taskNames: string[]) => void;
 }
 
-export function DocumentsList({ projectId }: DocumentsListProps) {
+export function DocumentsList({
+  projectId,
+  onCreateEstimation,
+}: DocumentsListProps) {
   const t = useTranslations("documents");
   const tCommon = useTranslations("common");
   const queryClient = useQueryClient();
@@ -241,6 +245,7 @@ export function DocumentsList({ projectId }: DocumentsListProps) {
               extractionId={latestExtractionByDocument[doc.id]?.id}
               onDownload={() => handleDownload(doc)}
               onDelete={() => handleDelete(doc)}
+              onCreateEstimation={onCreateEstimation}
               isDeleting={deleteMutation.isPending}
             />
           ))}
@@ -264,6 +269,7 @@ function DocumentCard({
   extractionId,
   onDownload,
   onDelete,
+  onCreateEstimation,
   isDeleting,
 }: {
   doc: Document;
@@ -271,6 +277,7 @@ function DocumentCard({
   extractionId: string | undefined;
   onDownload: () => void;
   onDelete: () => void;
+  onCreateEstimation?: (taskNames: string[]) => void;
   isDeleting: boolean;
 }) {
   const t = useTranslations("documents");
@@ -439,7 +446,12 @@ function DocumentCard({
         </div>
       )}
 
-      {extractionId && <ExtractionPanel extractionId={extractionId} />}
+      {extractionId && (
+        <ExtractionPanel
+          extractionId={extractionId}
+          onCreateEstimation={onCreateEstimation}
+        />
+      )}
     </div>
   );
 }

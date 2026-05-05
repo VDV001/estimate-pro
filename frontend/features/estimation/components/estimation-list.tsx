@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Send, Trash2, Clock, ChevronDown, ChevronRight } from "lucide-react";
@@ -35,15 +35,27 @@ const STATUS_STYLES: Record<string, string> = {
 
 interface EstimationListProps {
   projectId: string;
+  initialTasks?: string[];
+  onTasksConsumed?: () => void;
 }
 
-export function EstimationList({ projectId }: EstimationListProps) {
+export function EstimationList({
+  projectId,
+  initialTasks,
+  onTasksConsumed,
+}: EstimationListProps) {
   const t = useTranslations("estimation");
   const tCommon = useTranslations("common");
   const queryClient = useQueryClient();
 
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialTasks && initialTasks.length > 0) {
+      setShowForm(true);
+    }
+  }, [initialTasks]);
 
   const {
     data: estimations,
@@ -122,7 +134,11 @@ export function EstimationList({ projectId }: EstimationListProps) {
           </div>
           <EstimationForm
             projectId={projectId}
-            onCreated={() => setShowForm(false)}
+            initialTasks={initialTasks}
+            onCreated={() => {
+              setShowForm(false);
+              onTasksConsumed?.();
+            }}
           />
         </div>
       )}

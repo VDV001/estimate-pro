@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { EstimationList } from "./estimation-list";
 import { AggregatedView } from "./aggregated-view";
@@ -16,11 +16,26 @@ type SubTab = "my" | "aggregated";
 
 interface EstimationTabProps {
   projectId: string;
+  initialTasks?: string[];
+  onTasksConsumed?: () => void;
 }
 
-export function EstimationTab({ projectId }: EstimationTabProps) {
+export function EstimationTab({
+  projectId,
+  initialTasks,
+  onTasksConsumed,
+}: EstimationTabProps) {
   const t = useTranslations("estimation");
   const [subTab, setSubTab] = useState<SubTab>("my");
+
+  // Pre-filled tasks always belong to the "my" sub-tab where the
+  // EstimationForm lives — pull the user there if they were routed
+  // here from the extraction panel.
+  useEffect(() => {
+    if (initialTasks && initialTasks.length > 0) {
+      setSubTab("my");
+    }
+  }, [initialTasks]);
 
   const subTabs: { key: SubTab; label: string }[] = [
     { key: "my", label: t("myEstimations") },
@@ -47,7 +62,13 @@ export function EstimationTab({ projectId }: EstimationTabProps) {
       </div>
 
       {/* Content */}
-      {subTab === "my" && <EstimationList projectId={projectId} />}
+      {subTab === "my" && (
+        <EstimationList
+          projectId={projectId}
+          initialTasks={initialTasks}
+          onTasksConsumed={onTasksConsumed}
+        />
+      )}
       {subTab === "aggregated" && <AggregatedView projectId={projectId} />}
     </div>
   );
