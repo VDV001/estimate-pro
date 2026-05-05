@@ -50,6 +50,14 @@ export default function ProjectDetailPage({
 
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [pendingEstimationTasks, setPendingEstimationTasks] = useState<
+    string[] | undefined
+  >(undefined);
+
+  const handleCreateEstimation = (taskNames: string[]) => {
+    setPendingEstimationTasks(taskNames);
+    setActiveTab("estimations");
+  };
 
   const {
     data: project,
@@ -164,10 +172,17 @@ export default function ProjectDetailPage({
         <OverviewTab project={project} />
       )}
       {activeTab === "documents" && (
-        <DocumentsList projectId={id} />
+        <DocumentsList
+          projectId={id}
+          onCreateEstimation={handleCreateEstimation}
+        />
       )}
       {activeTab === "estimations" && (
-        <EstimationTab projectId={id} />
+        <EstimationTab
+          projectId={id}
+          initialTasks={pendingEstimationTasks}
+          onTasksConsumed={() => setPendingEstimationTasks(undefined)}
+        />
       )}
       {activeTab === "members" && (
         <MembersList projectId={id} />
