@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3 } from "lucide-react";
 import { getAggregated, type AggregatedItem } from "@/features/estimation/api";
+import { DownloadReportButton } from "@/features/report/components/download-report-button";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -57,7 +58,10 @@ export function AggregatedView({ projectId }: AggregatedViewProps) {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">{t("aggregate")}</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">{t("aggregate")}</h3>
+        <DownloadReportButton projectId={projectId} />
+      </div>
 
       <div className="rounded-lg border">
         {/* Header */}
