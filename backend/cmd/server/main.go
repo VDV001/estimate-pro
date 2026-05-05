@@ -53,6 +53,7 @@ import (
 	estimationRepo "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/repo"
 	estimationUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/estimation/usecase"
 
+	extractorDomain "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/domain"
 	extractorHandler "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/handler"
 	extractorRepo "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/repository"
 	extractorUsecase "github.com/VDV001/estimate-pro/backend/internal/modules/extractor/usecase"
@@ -244,6 +245,13 @@ func main() {
 		enqueuer := &riverJobEnqueuerAdapter{client: riverClient}
 		extractorUC := extractorUsecase.NewExtractor(extractorRepository, cfg.Extractor.MaxBytes, enqueuer)
 		extractorH = extractorHandler.New(extractorUC)
+		extractorH.WithOwnershipResolver(
+			&extractionProjectResolverAdapter{
+				extractions: extractorRepository,
+				documents:   docRepository,
+			},
+			&roleGetterAdapter{memberRepo},
+		)
 	}
 
 	// Router
@@ -798,4 +806,29 @@ func (a *documentSourceAdapter) Fetch(ctx context.Context, documentVersionID str
 		filename = "document." + string(version.FileType)
 	}
 	return data, filename, nil
+}
+
+// extractionProjectResolverAdapter satisfies handler.ExtractionProjectResolver
+// by joining the extraction → document → project chain. Cross-module read
+// quarantined to main.go; the handler package stays free of cross-module
+// imports per Clean Architecture.
+type extractionProjectResolverAdapter struct {
+	extractions interface {
+		GetByID(ctx context.Context, id string) (*extractorDomain.Extraction, error)
+	}
+	documents interface {
+		GetByID(ctx context.Context, id string) (*documentDomain.Document, error)
+	}
+}
+
+func (a *extractionProjectResolverAdapter) ProjectIDByExtraction(ctx context.Context, extractionID string) (string, error) {
+	ext, err := a.extractions.GetByID(ctx, extractionID)
+	if err != nil {
+		return "", fmt.Errorf("extractionProjectResolver: get extraction %q: %w", extractionID, err)
+	}
+	doc, err := a.documents.GetByID(ctx, ext.DocumentID)
+	if err != nil {
+		return "", fmt.Errorf("extractionProjectResolver: get document %q: %w", ext.DocumentID, err)
+	}
+	return doc.ProjectID, nil
 }
