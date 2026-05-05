@@ -16,8 +16,42 @@ export const REPORT_FORMATS: readonly ReportFormat[] = ["md", "pdf", "docx"];
  * JSON).
  */
 export async function downloadReport(
-  _projectId: string,
-  _format: ReportFormat,
+  projectId: string,
+  format: ReportFormat,
 ): Promise<void> {
-  throw new Error("downloadReport: not implemented");
+  const headers: Record<string, string> = {};
+  const token = getAccessToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(
+    `${API_BASE}/api/v1/projects/${projectId}/report?format=${format}`,
+    { headers },
+  );
+  if (!response.ok) {
+    const fallback = { error: { code: "UNKNOWN", message: response.statusText } };
+    const body = await response.json().catch(() => fallback);
+    throw new Error(body.error?.message ?? "Report download failed");
+  }
+
+  const blob = await response.blob();
+
+  let filename = `report.${format}`;
+  const disposition = response.headers.get("Content-Disposition");
+  if (disposition) {
+    const match = disposition.match(/filename="?([^";\n]+)"?/);
+    if (match?.[1]) {
+      filename = match[1];
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
