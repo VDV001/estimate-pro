@@ -179,6 +179,7 @@ export default function ProjectDetailPage({
       )}
       {activeTab === "estimations" && (
         <EstimationTab
+          key={pendingEstimationTasks?.join("|") ?? "default"}
           projectId={id}
           initialTasks={pendingEstimationTasks}
           onTasksConsumed={() => setPendingEstimationTasks(undefined)}

@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { EstimationList } from "./estimation-list";
 import { AggregatedView } from "./aggregated-view";
@@ -26,16 +26,13 @@ export function EstimationTab({
   onTasksConsumed,
 }: EstimationTabProps) {
   const t = useTranslations("estimation");
-  const [subTab, setSubTab] = useState<SubTab>("my");
-
-  // Pre-filled tasks always belong to the "my" sub-tab where the
-  // EstimationForm lives — pull the user there if they were routed
-  // here from the extraction panel.
-  useEffect(() => {
-    if (initialTasks && initialTasks.length > 0) {
-      setSubTab("my");
-    }
-  }, [initialTasks]);
+  // Pre-filled tasks always belong to the "my" sub-tab. The parent
+  // remounts EstimationTab via a `key` prop tied to initialTasks
+  // identity, so the lazy initializer runs on every fresh hand-off
+  // and we don't need a useEffect to flip the sub-tab.
+  const [subTab, setSubTab] = useState<SubTab>(() =>
+    initialTasks && initialTasks.length > 0 ? "my" : "my",
+  );
 
   const subTabs: { key: SubTab; label: string }[] = [
     { key: "my", label: t("myEstimations") },
