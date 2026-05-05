@@ -20,8 +20,18 @@ export type ExtractionReasonKey =
   | "cancelled"
   | "unknown";
 
+const REASON_TO_KEY: Record<string, ExtractionReasonKey> = {
+  "encrypted file (password protected)": "encrypted",
+  "LLM service error": "llmService",
+  "prompt injection detected": "promptInjection",
+  "LLM response failed schema validation": "schemaInvalid",
+  "pipeline error": "pipelineError",
+  cancelled: "cancelled",
+};
+
 export function mapExtractionReason(
-  _reason: string | undefined | null,
+  reason: string | undefined | null,
 ): ExtractionReasonKey {
-  throw new Error("mapExtractionReason: not implemented");
+  if (!reason) return "unknown";
+  return REASON_TO_KEY[reason] ?? "unknown";
 }
