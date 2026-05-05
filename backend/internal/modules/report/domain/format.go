@@ -23,5 +23,9 @@ const (
 // query param, bot intent param) before handing the value to the
 // use case — keeping invalid formats out of the rendering path.
 func (f Format) IsValid() bool {
+	switch f {
+	case FormatMD, FormatPDF, FormatDOCX:
+		return true
+	}
 	return false
 }
