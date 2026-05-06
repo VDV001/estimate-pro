@@ -125,8 +125,6 @@ func TestWhisperAdapter_RecognizeAudio_HTTPError(t *testing.T) {
 
 func TestWhisperAdapter_RecognizeAudio_FilenameByMime(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	cases := []struct {
 		name        string
@@ -141,6 +139,8 @@ func TestWhisperAdapter_RecognizeAudio_FilenameByMime(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
 			var gotFileName string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
