@@ -14,12 +14,37 @@ type Update struct {
 
 // Message represents a Telegram message.
 type Message struct {
-	MessageID      int64     `json:"message_id"`
-	From           *User     `json:"from,omitempty"`
-	Chat           *Chat     `json:"chat"`
-	Text           string    `json:"text,omitempty"`
-	Document       *Document `json:"document,omitempty"`
-	ReplyToMessage *Message  `json:"reply_to_message,omitempty"`
+	MessageID      int64       `json:"message_id"`
+	From           *User       `json:"from,omitempty"`
+	Chat           *Chat       `json:"chat"`
+	Text           string      `json:"text,omitempty"`
+	Document       *Document   `json:"document,omitempty"`
+	Photo          []PhotoSize // RED: JSON tag added in GREEN commit
+	Voice          *Voice      // RED: JSON tag added in GREEN commit
+	ReplyToMessage *Message    `json:"reply_to_message,omitempty"`
+}
+
+// PhotoSize represents one of the resolutions Telegram offers for an
+// uploaded photo. Telegram includes several entries in message.photo
+// — small (thumb) through full size — and the bot picks the
+// highest-resolution variant for OCR. file_unique_id is intentionally
+// omitted: only file_id is needed to download.
+type PhotoSize struct {
+	FileID   string // RED: JSON tag added in GREEN commit
+	Width    int    // RED: JSON tag added in GREEN commit
+	Height   int    // RED: JSON tag added in GREEN commit
+	FileSize int64  // RED: JSON tag added in GREEN commit
+}
+
+// Voice represents a Telegram voice message. Telegram always encodes
+// voice as ogg/opus, regardless of the source platform — Whisper
+// accepts that container directly, so the bot forwards the bytes
+// verbatim into RecognizeAudio.
+type Voice struct {
+	FileID   string // RED: JSON tag added in GREEN commit
+	MimeType string // RED: JSON tag added in GREEN commit
+	Duration int    // RED: JSON tag added in GREEN commit
+	FileSize int64  // RED: JSON tag added in GREEN commit
 }
 
 // User represents a Telegram user.
