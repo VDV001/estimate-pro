@@ -380,6 +380,17 @@ func newTestBotDeps() *testBotDeps {
 
 func (d *testBotDeps) build() *BotUsecase {
 	parser := d.parser
+	// Avoid Go's typed-nil-interface gotcha: when a test sets the
+	// concrete pointer to nil, pass an untyped nil into New so the
+	// BotUsecase `if uc.textExtractor == nil` check fires.
+	var te TextExtractor
+	if d.textExtractor != nil {
+		te = d.textExtractor
+	}
+	var sr SpeechRecognizer
+	if d.speechRecognizer != nil {
+		sr = d.speechRecognizer
+	}
 	return New(
 		d.sessionRepo,
 		d.linkRepo,
@@ -401,8 +412,8 @@ func (d *testBotDeps) build() *BotUsecase {
 		nil, // passwords (PasswordResetManager)
 		d.extractions,
 		d.reporter,
-		d.textExtractor,
-		d.speechRecognizer,
+		te,
+		sr,
 	)
 }
 
