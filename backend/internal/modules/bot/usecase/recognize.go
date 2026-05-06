@@ -28,8 +28,14 @@ func (uc *BotUsecase) recognizePhoto(ctx context.Context, msg *telegram.Message,
 		return "", false
 	}
 	if len(msg.Photo) == 0 {
+		slog.WarnContext(ctx, "BotUsecase.recognizePhoto: empty Photo array", slog.String("chat_id", chatID))
+		_ = uc.telegram.SendMessage(ctx, chatID, messages.PhotoDownloadFailed)
 		return "", false
 	}
+
+	// 👀 reaction goes BEFORE the network round-trip so the user
+	// gets immediate feedback while download + OCR run.
+	_ = uc.telegram.SetReaction(ctx, chatID, msg.MessageID, "👀")
 
 	largest := msg.Photo[len(msg.Photo)-1]
 	slog.InfoContext(ctx, "BotUsecase.recognizePhoto: downloading photo",
@@ -51,8 +57,6 @@ func (uc *BotUsecase) recognizePhoto(ctx context.Context, msg *telegram.Message,
 		_ = uc.telegram.SendMessage(ctx, chatID, messages.PhotoDownloadFailed)
 		return "", false
 	}
-
-	_ = uc.telegram.SetReaction(ctx, chatID, msg.MessageID, "👀")
 
 	text, err := uc.textExtractor.ExtractTextFromImage(ctx, data)
 	if err != nil {
@@ -82,6 +86,10 @@ func (uc *BotUsecase) recognizeVoice(ctx context.Context, msg *telegram.Message,
 		return "", false
 	}
 
+	// 👀 reaction goes BEFORE the network round-trip so the user
+	// gets immediate feedback while download + STT run.
+	_ = uc.telegram.SetReaction(ctx, chatID, msg.MessageID, "👀")
+
 	v := msg.Voice
 	slog.InfoContext(ctx, "BotUsecase.recognizeVoice: downloading voice",
 		slog.String("file_id", v.FileID),
@@ -102,8 +110,6 @@ func (uc *BotUsecase) recognizeVoice(ctx context.Context, msg *telegram.Message,
 		_ = uc.telegram.SendMessage(ctx, chatID, messages.VoiceDownloadFailed)
 		return "", false
 	}
-
-	_ = uc.telegram.SetReaction(ctx, chatID, msg.MessageID, "👀")
 
 	text, err := uc.speechRecognizer.RecognizeAudio(ctx, data, v.MimeType)
 	if err != nil {

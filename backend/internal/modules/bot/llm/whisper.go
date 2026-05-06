@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	whisperAPIPath        = "/v1/audio/transcriptions"
-	defaultWhisperBaseURL = "https://api.openai.com"
-	whisperDefaultModel   = "whisper-1"
+	whisperAPIPath           = "/v1/audio/transcriptions"
+	defaultWhisperBaseURL    = "https://api.openai.com"
+	whisperDefaultModel      = "whisper-1"
+	whisperDefaultHTTPTimeout = 60 * time.Second
 )
 
 // ErrWhisperHTTP marks a non-2xx response from the OpenAI endpoint.
@@ -55,7 +56,7 @@ func NewWhisperAdapter(apiKey, model, baseURL string) *WhisperAdapter {
 		apiKey:  apiKey,
 		model:   model,
 		baseURL: baseURL,
-		client:  &http.Client{Timeout: visionDefaultHTTPTimeout},
+		client:  &http.Client{Timeout: whisperDefaultHTTPTimeout},
 	}
 }
 
