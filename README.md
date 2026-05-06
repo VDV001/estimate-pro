@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-0.14.0-blue)
+![Version](https://img.shields.io/badge/version-0.15.0-blue)
 
 **Коллаборативная платформа для оценки проектов.**
 
@@ -268,9 +268,15 @@ cd frontend && npx tsc --noEmit
 
 Проект следует [Semantic Versioning](https://semver.org/):
 
-**Текущая версия: `0.14.0`**
+**Текущая версия: `0.15.0`**
 
 ### Changelog
+
+#### v0.15.0 (2026-05-06)
+- feat(bot): OCR (Anthropic Claude Vision) + STT (OpenAI Whisper) для бота Эсти. Фото в чат → `ClaudeVisionAdapter.ExtractTextFromImage` (POST /v1/messages с base64 image content block + русский OCR-промпт); голосовое → `WhisperAdapter.RecognizeAudio` (multipart POST /v1/audio/transcriptions с filename mapping mime→extension). Распознанный текст подменяет `msg.Text` и обычный intent pipeline (ParseIntent → Execute → Format) обрабатывает медиа как текстовое сообщение. Новые порты `usecase.TextExtractor` / `usecase.SpeechRecognizer` на потребительской стороне (DIP). Реакция 👀 ставится до сетевого round-trip — мгновенный UX feedback. Closes #8.
+- feat(bot/telegram): DTO `PhotoSize` (массив, бот выбирает max-resolution) + `Voice` в `Update.Message.Photo` / `Update.Message.Voice`.
+- feat(config): `MediaConfig{AnthropicAPIKey, VisionModel, OpenAIAPIKey, WhisperModel}` — новые env vars `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` (опционально `VISION_MODEL` / `WHISPER_MODEL`). Без ключа фича отключена; бот шлёт `PhotoRecognitionUnavailable` / `VoiceRecognitionUnavailable` мягким сообщением вместо nil-deref. Defaults: `claude-sonnet-4-20250514` / `whisper-1`.
+- chore(release): bump v0.14.1 → v0.15.0 — minor (новая фича OCR/STT).
 
 #### v0.14.0 (2026-05-05)
 - feat(report): новый module `internal/modules/report/` — orchestrates project + aggregated PERT view → `GenerationInput` → render через `shared/generator`. HTTP `GET /api/v1/projects/{id}/report?format=pdf|md|docx` (default `pdf`); ownership middleware enforce'ится на project-membership. 4xx mapping: invalid format → 400, empty aggregation → 409.
