@@ -368,6 +368,8 @@ func main() {
 		&botPasswordResetAdapter{authUC: authUC},
 		botExtraction,
 		&botReporterAdapter{baseURL: cfg.FrontendBaseURL},
+		nil, // textExtractor — wired in PR-issue-8 step 5
+		nil, // speechRecognizer — wired in PR-issue-8 step 5
 	)
 	botH := botHandler.New(botUC, cfg.TelegramBot.WebhookSecret)
 

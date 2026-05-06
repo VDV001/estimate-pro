@@ -49,6 +49,14 @@ type BotUsecase struct {
 	botUsername  string
 	formatter    *llm.Formatter // LLM #2 — personality formatter
 
+	// Optional media-recognition adapters. Both are nullable: when
+	// the composition root has no API key for the corresponding
+	// provider it injects nil and the bot replies to the user that
+	// the feature is unavailable instead of crashing on a nil
+	// dereference.
+	textExtractor    TextExtractor
+	speechRecognizer SpeechRecognizer
+
 	// Extraction polling configuration (PR-B5). Defaults match
 	// ADR-016 §timeouts (3s × 100 = 5min). Tests override via
 	// SetExtractionPollingForTest to keep their runtime sub-second.
@@ -72,7 +80,10 @@ const memoryLimit = 20 // last N messages to keep per user
 
 // New creates a new BotUsecase with all dependencies. The formatter is
 // injected pre-built — composition root owns the construction so the
-// usecase does not import shared/llm directly.
+// usecase does not import shared/llm directly. textExtractor and
+// speechRecognizer may be nil when the corresponding API keys are not
+// configured; ProcessMessage replies softly to the user instead of
+// dereferencing.
 func New(
 	sessionRepo domain.SessionRepository,
 	links domain.UserLinkRepository,
@@ -92,6 +103,8 @@ func New(
 	passwords domain.PasswordResetManager,
 	extractions domain.Extractor,
 	reporter domain.Reporter,
+	textExtractor TextExtractor,
+	speechRecognizer SpeechRecognizer,
 ) *BotUsecase {
 	return &BotUsecase{
 		sessions:     NewSessionManager(sessionRepo),
@@ -106,6 +119,8 @@ func New(
 		envLLM:                 envLLM,
 		botUsername:            botUsername,
 		formatter:              formatter,
+		textExtractor:          textExtractor,
+		speechRecognizer:       speechRecognizer,
 		extractionPollInterval: defaultExtractionPollInterval,
 		extractionPollMax:      defaultExtractionPollMax,
 	}
