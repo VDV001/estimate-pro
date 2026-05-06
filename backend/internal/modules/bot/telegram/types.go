@@ -19,8 +19,8 @@ type Message struct {
 	Chat           *Chat       `json:"chat"`
 	Text           string      `json:"text,omitempty"`
 	Document       *Document   `json:"document,omitempty"`
-	Photo          []PhotoSize // RED: JSON tag added in GREEN commit
-	Voice          *Voice      // RED: JSON tag added in GREEN commit
+	Photo          []PhotoSize `json:"photo,omitempty"`
+	Voice          *Voice      `json:"voice,omitempty"`
 	ReplyToMessage *Message    `json:"reply_to_message,omitempty"`
 }
 
@@ -30,10 +30,10 @@ type Message struct {
 // highest-resolution variant for OCR. file_unique_id is intentionally
 // omitted: only file_id is needed to download.
 type PhotoSize struct {
-	FileID   string // RED: JSON tag added in GREEN commit
-	Width    int    // RED: JSON tag added in GREEN commit
-	Height   int    // RED: JSON tag added in GREEN commit
-	FileSize int64  // RED: JSON tag added in GREEN commit
+	FileID   string `json:"file_id"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	FileSize int64  `json:"file_size,omitempty"`
 }
 
 // Voice represents a Telegram voice message. Telegram always encodes
@@ -41,10 +41,10 @@ type PhotoSize struct {
 // accepts that container directly, so the bot forwards the bytes
 // verbatim into RecognizeAudio.
 type Voice struct {
-	FileID   string // RED: JSON tag added in GREEN commit
-	MimeType string // RED: JSON tag added in GREEN commit
-	Duration int    // RED: JSON tag added in GREEN commit
-	FileSize int64  // RED: JSON tag added in GREEN commit
+	FileID   string `json:"file_id"`
+	MimeType string `json:"mime_type,omitempty"`
+	Duration int    `json:"duration"`
+	FileSize int64  `json:"file_size,omitempty"`
 }
 
 // User represents a Telegram user.
