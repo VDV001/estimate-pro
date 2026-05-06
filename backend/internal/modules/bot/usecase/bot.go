@@ -173,6 +173,26 @@ func (uc *BotUsecase) ProcessMessage(ctx context.Context, update *telegram.Updat
 		slog.DebugContext(ctx, "BotUsecase.ProcessMessage: bot mentioned in group", slog.String("chat_id", chatID))
 	}
 
+	// Recognize media (photo / voice) into a transcript and feed the
+	// rest of the pipeline as if the user had typed the result. Each
+	// helper handles its own user-facing error reply and returns
+	// ok=false when the pipeline must stop. Photo and voice are
+	// mutually exclusive in a single Telegram update, but the order
+	// here mirrors that: photo first, voice as an else-if.
+	if len(msg.Photo) > 0 {
+		recognized, ok := uc.recognizePhoto(ctx, msg, chatID)
+		if !ok {
+			return nil
+		}
+		msg.Text = recognized
+	} else if msg.Voice != nil {
+		recognized, ok := uc.recognizeVoice(ctx, msg, chatID)
+		if !ok {
+			return nil
+		}
+		msg.Text = recognized
+	}
+
 	text := uc.stripBotMention(msg.Text)
 	msgID := msg.MessageID
 

@@ -321,3 +321,16 @@ func StatusEmoji(status string) string {
 		return "📌"
 	}
 }
+
+// Photo / Voice recognition (issue #8) — soft failure messages shown to
+// the user when OCR / STT cannot run or returns an error. The text is
+// intentionally generic so it does not leak provider names; logs carry
+// the underlying error.
+const (
+	PhotoRecognitionUnavailable = "Распознавание фото временно недоступно — обратитесь к администратору."
+	PhotoRecognitionFailed      = "Не удалось распознать текст с фото. Попробуй сделать снимок поярче или напиши текстом."
+	PhotoDownloadFailed         = "Не удалось загрузить фото из Telegram. Попробуй ещё раз через минуту."
+	VoiceRecognitionUnavailable = "Распознавание голосовых сообщений временно недоступно — обратитесь к администратору."
+	VoiceRecognitionFailed      = "Не удалось распознать голосовое сообщение. Попробуй записать его ещё раз или напиши текстом."
+	VoiceDownloadFailed         = "Не удалось загрузить голосовое сообщение из Telegram. Попробуй ещё раз через минуту."
+)
