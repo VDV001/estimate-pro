@@ -52,7 +52,8 @@ export default function ProjectDetailPage({
 
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const isDeeplink = searchParams.get("download") === "report";
+  const [activeTab, setActiveTab] = useState<Tab>(isDeeplink ? "estimations" : "overview");
   const [pendingEstimationTasks, setPendingEstimationTasks] = useState<
     string[] | undefined
   >(undefined);
@@ -62,19 +63,15 @@ export default function ProjectDetailPage({
     setActiveTab("estimations");
   };
 
-  // Auto-trigger report download when arriving from a bot deeplink
-  // (?download=report&format=pdf|md|docx). Guarded by a ref so the
-  // effect fires once per mount even if React strict-mode replays it.
   const autoDownloadFiredRef = useRef(false);
   useEffect(() => {
     if (autoDownloadFiredRef.current) return;
-    if (searchParams.get("download") !== "report") return;
+    if (!isDeeplink) return;
     const format = searchParams.get("format") ?? "pdf";
     if (!REPORT_FORMATS.includes(format as ReportFormat)) return;
     autoDownloadFiredRef.current = true;
-    setActiveTab("estimations");
     void downloadReport(id, format as ReportFormat);
-  }, [searchParams, id]);
+  }, [isDeeplink, searchParams, id]);
 
   const {
     data: project,
