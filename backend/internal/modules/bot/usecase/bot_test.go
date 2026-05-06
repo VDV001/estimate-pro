@@ -139,6 +139,28 @@ func (m *mockTelegramClient) DownloadFile(ctx context.Context, url string) ([]by
 	return nil, nil
 }
 
+type mockTextExtractor struct {
+	ExtractTextFromImageFn func(ctx context.Context, imageBytes []byte) (string, error)
+}
+
+func (m *mockTextExtractor) ExtractTextFromImage(ctx context.Context, imageBytes []byte) (string, error) {
+	if m.ExtractTextFromImageFn != nil {
+		return m.ExtractTextFromImageFn(ctx, imageBytes)
+	}
+	return "", nil
+}
+
+type mockSpeechRecognizer struct {
+	RecognizeAudioFn func(ctx context.Context, audioBytes []byte, mimeType string) (string, error)
+}
+
+func (m *mockSpeechRecognizer) RecognizeAudio(ctx context.Context, audioBytes []byte, mimeType string) (string, error) {
+	if m.RecognizeAudioFn != nil {
+		return m.RecognizeAudioFn(ctx, audioBytes, mimeType)
+	}
+	return "", nil
+}
+
 type mockLLMParser struct {
 	ParseIntentFn func(ctx context.Context, message string, history []string) (*domain.Intent, error)
 }
@@ -317,38 +339,42 @@ func (m *mockUserResolver) ResolveByTelegramID(ctx context.Context, telegramUser
 }
 
 type testBotDeps struct {
-	sessionRepo  *mockSessionRepo
-	linkRepo     *mockUserLinkRepo
-	userResolver *mockUserResolver
-	llmCfgRepo   *mockLLMConfigRepo
-	memoryRepo   *mockMemoryRepo
-	prefsRepo    *mockUserPrefsRepo
-	tgClient     *mockTelegramClient
-	parser       *mockLLMParser
-	projects     *mockProjectManager
-	members      *mockMemberManager
-	estimations  *mockEstimationManager
-	documents    *mockDocumentManager
-	extractions  *mockExtractionTrigger
-	reporter     *mockReporter
+	sessionRepo      *mockSessionRepo
+	linkRepo         *mockUserLinkRepo
+	userResolver     *mockUserResolver
+	llmCfgRepo       *mockLLMConfigRepo
+	memoryRepo       *mockMemoryRepo
+	prefsRepo        *mockUserPrefsRepo
+	tgClient         *mockTelegramClient
+	parser           *mockLLMParser
+	projects         *mockProjectManager
+	members          *mockMemberManager
+	estimations      *mockEstimationManager
+	documents        *mockDocumentManager
+	extractions      *mockExtractionTrigger
+	reporter         *mockReporter
+	textExtractor    *mockTextExtractor
+	speechRecognizer *mockSpeechRecognizer
 }
 
 func newTestBotDeps() *testBotDeps {
 	return &testBotDeps{
-		sessionRepo:  &mockSessionRepo{},
-		linkRepo:     &mockUserLinkRepo{},
-		userResolver: &mockUserResolver{},
-		llmCfgRepo:   &mockLLMConfigRepo{},
-		memoryRepo:   &mockMemoryRepo{},
-		prefsRepo:    &mockUserPrefsRepo{},
-		tgClient:     &mockTelegramClient{},
-		parser:       &mockLLMParser{},
-		projects:     &mockProjectManager{},
-		members:      &mockMemberManager{},
-		estimations:  &mockEstimationManager{},
-		documents:    &mockDocumentManager{},
-		extractions:  &mockExtractionTrigger{},
-		reporter:     &mockReporter{},
+		sessionRepo:      &mockSessionRepo{},
+		linkRepo:         &mockUserLinkRepo{},
+		userResolver:     &mockUserResolver{},
+		llmCfgRepo:       &mockLLMConfigRepo{},
+		memoryRepo:       &mockMemoryRepo{},
+		prefsRepo:        &mockUserPrefsRepo{},
+		tgClient:         &mockTelegramClient{},
+		parser:           &mockLLMParser{},
+		projects:         &mockProjectManager{},
+		members:          &mockMemberManager{},
+		estimations:      &mockEstimationManager{},
+		documents:        &mockDocumentManager{},
+		extractions:      &mockExtractionTrigger{},
+		reporter:         &mockReporter{},
+		textExtractor:    &mockTextExtractor{},
+		speechRecognizer: &mockSpeechRecognizer{},
 	}
 }
 
@@ -375,6 +401,8 @@ func (d *testBotDeps) build() *BotUsecase {
 		nil, // passwords (PasswordResetManager)
 		d.extractions,
 		d.reporter,
+		d.textExtractor,
+		d.speechRecognizer,
 	)
 }
 
@@ -2059,6 +2087,8 @@ func TestProcessMessage_ResolveLLMParser_NoConfig(t *testing.T) {
 		nil,
 		deps.extractions,
 		deps.reporter,
+		deps.textExtractor,
+		deps.speechRecognizer,
 	)
 
 	var sentText string
@@ -2452,3 +2482,240 @@ func TestProcessMessage_FileUpload_PollFailureAndTimeout(t *testing.T) {
 	}
 }
 
+
+// --- Photo / Voice (issue #8) ---
+
+// TestProcessMessage_Photo_RecognizesAndExecutes asserts that an
+// inbound message.photo is downloaded, OCR'd via TextExtractor, and
+// the recognized text becomes the input to ParseIntent — i.e. the bot
+// treats the photo as if the user had typed the recognized text.
+func TestProcessMessage_Photo_RecognizesAndExecutes(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 42, UserID: "user-1"}, nil
+	}
+	deps.tgClient.GetFileURLFn = func(_ context.Context, _ string) (string, error) {
+		return "https://example/photo.jpg", nil
+	}
+	deps.tgClient.DownloadFileFn = func(_ context.Context, _ string) ([]byte, error) {
+		return []byte("fake-image"), nil
+	}
+
+	var capturedFileID string
+	deps.tgClient.GetFileURLFn = func(_ context.Context, fileID string) (string, error) {
+		capturedFileID = fileID
+		return "https://example/photo.jpg", nil
+	}
+
+	deps.textExtractor.ExtractTextFromImageFn = func(_ context.Context, b []byte) (string, error) {
+		if len(b) == 0 {
+			t.Error("ExtractTextFromImage: empty bytes")
+		}
+		return "создай проект Foo", nil
+	}
+
+	var parsedText string
+	deps.parser.ParseIntentFn = func(_ context.Context, msg string, _ []string) (*domain.Intent, error) {
+		parsedText = msg
+		return &domain.Intent{
+			Type:       domain.IntentCreateProject,
+			Confidence: 0.9,
+			Params:     map[string]string{"name": "Foo"},
+		}, nil
+	}
+
+	uc := deps.build()
+
+	err := uc.ProcessMessage(t.Context(), &tg.Update{
+		Message: &tg.Message{
+			From: &tg.User{ID: 42},
+			Chat: &tg.Chat{ID: 100, Type: "private"},
+			Photo: []tg.PhotoSize{
+				{FileID: "small-id", Width: 90, Height: 60},
+				{FileID: "large-id", Width: 1280, Height: 720, FileSize: 250000},
+			},
+			MessageID: 7,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	if capturedFileID != "large-id" {
+		t.Errorf("GetFileURL called with %q, want highest-resolution %q", capturedFileID, "large-id")
+	}
+	if parsedText != "создай проект Foo" {
+		t.Errorf("ParseIntent input: got %q, want %q", parsedText, "создай проект Foo")
+	}
+}
+
+// TestProcessMessage_Photo_OCRError verifies that an OCR failure
+// produces a user-facing "не удалось распознать" reply rather than
+// silently dropping the message or crashing.
+func TestProcessMessage_Photo_OCRError(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 42, UserID: "user-1"}, nil
+	}
+	deps.tgClient.GetFileURLFn = func(_ context.Context, _ string) (string, error) {
+		return "https://example/photo.jpg", nil
+	}
+	deps.tgClient.DownloadFileFn = func(_ context.Context, _ string) ([]byte, error) {
+		return []byte("fake-image"), nil
+	}
+	deps.textExtractor.ExtractTextFromImageFn = func(_ context.Context, _ []byte) (string, error) {
+		return "", errors.New("vision provider unreachable")
+	}
+
+	var sentText string
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, text string) error {
+		sentText = text
+		return nil
+	}
+	parserCalled := false
+	deps.parser.ParseIntentFn = func(_ context.Context, _ string, _ []string) (*domain.Intent, error) {
+		parserCalled = true
+		return &domain.Intent{Type: domain.IntentUnknown, Confidence: 0}, nil
+	}
+
+	uc := deps.build()
+	err := uc.ProcessMessage(t.Context(), &tg.Update{
+		Message: &tg.Message{
+			From:      &tg.User{ID: 42},
+			Chat:      &tg.Chat{ID: 100, Type: "private"},
+			Photo:     []tg.PhotoSize{{FileID: "x", Width: 100, Height: 100}},
+			MessageID: 8,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	if parserCalled {
+		t.Error("ParseIntent must not be called when OCR fails")
+	}
+	if !strings.Contains(strings.ToLower(sentText), "распозн") {
+		t.Errorf("expected user-facing error mentioning recognition, got %q", sentText)
+	}
+}
+
+// TestProcessMessage_Voice_RecognizesAndExecutes asserts the voice
+// path mirrors the photo path: download → SpeechRecognizer →
+// ParseIntent.
+func TestProcessMessage_Voice_RecognizesAndExecutes(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 42, UserID: "user-1"}, nil
+	}
+	deps.tgClient.GetFileURLFn = func(_ context.Context, _ string) (string, error) {
+		return "https://example/voice.ogg", nil
+	}
+	deps.tgClient.DownloadFileFn = func(_ context.Context, _ string) ([]byte, error) {
+		return []byte("fake-ogg"), nil
+	}
+
+	var capturedMime string
+	deps.speechRecognizer.RecognizeAudioFn = func(_ context.Context, b []byte, mime string) (string, error) {
+		if len(b) == 0 {
+			t.Error("RecognizeAudio: empty bytes")
+		}
+		capturedMime = mime
+		return "покажи проекты", nil
+	}
+
+	var parsedText string
+	deps.parser.ParseIntentFn = func(_ context.Context, msg string, _ []string) (*domain.Intent, error) {
+		parsedText = msg
+		return &domain.Intent{Type: domain.IntentListProjects, Confidence: 0.95}, nil
+	}
+
+	uc := deps.build()
+
+	err := uc.ProcessMessage(t.Context(), &tg.Update{
+		Message: &tg.Message{
+			From:      &tg.User{ID: 42},
+			Chat:      &tg.Chat{ID: 100, Type: "private"},
+			Voice:     &tg.Voice{FileID: "voice-id", MimeType: "audio/ogg", Duration: 4, FileSize: 8000},
+			MessageID: 9,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	if capturedMime != "audio/ogg" {
+		t.Errorf("RecognizeAudio mime: got %q, want %q", capturedMime, "audio/ogg")
+	}
+	if parsedText != "покажи проекты" {
+		t.Errorf("ParseIntent input: got %q, want %q", parsedText, "покажи проекты")
+	}
+}
+
+// TestProcessMessage_Voice_STTError mirrors the photo error case.
+func TestProcessMessage_Voice_STTError(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 42, UserID: "user-1"}, nil
+	}
+	deps.tgClient.GetFileURLFn = func(_ context.Context, _ string) (string, error) {
+		return "https://example/voice.ogg", nil
+	}
+	deps.tgClient.DownloadFileFn = func(_ context.Context, _ string) ([]byte, error) {
+		return []byte("fake-ogg"), nil
+	}
+	deps.speechRecognizer.RecognizeAudioFn = func(_ context.Context, _ []byte, _ string) (string, error) {
+		return "", errors.New("whisper down")
+	}
+	var sentText string
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, text string) error {
+		sentText = text
+		return nil
+	}
+
+	uc := deps.build()
+	err := uc.ProcessMessage(t.Context(), &tg.Update{
+		Message: &tg.Message{
+			From:      &tg.User{ID: 42},
+			Chat:      &tg.Chat{ID: 100, Type: "private"},
+			Voice:     &tg.Voice{FileID: "voice-id", MimeType: "audio/ogg"},
+			MessageID: 10,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(sentText), "распозн") {
+		t.Errorf("expected user-facing error mentioning recognition, got %q", sentText)
+	}
+}
+
+// TestProcessMessage_Photo_NoExtractorConfigured covers the path
+// where the composition root injected nil because no API key is
+// available — bot must reply with a "feature unavailable" message
+// rather than dereference nil.
+func TestProcessMessage_Photo_NoExtractorConfigured(t *testing.T) {
+	deps := newTestBotDeps()
+	deps.linkRepo.GetByTelegramUserIDFn = func(_ context.Context, _ int64) (*domain.BotUserLink, error) {
+		return &domain.BotUserLink{TelegramUserID: 42, UserID: "user-1"}, nil
+	}
+	deps.textExtractor = nil
+
+	var sentText string
+	deps.tgClient.SendMessageFn = func(_ context.Context, _, text string) error {
+		sentText = text
+		return nil
+	}
+
+	uc := deps.build()
+	err := uc.ProcessMessage(t.Context(), &tg.Update{
+		Message: &tg.Message{
+			From:      &tg.User{ID: 42},
+			Chat:      &tg.Chat{ID: 100, Type: "private"},
+			Photo:     []tg.PhotoSize{{FileID: "x", Width: 100, Height: 100}},
+			MessageID: 11,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	if sentText == "" {
+		t.Error("expected user-facing message about disabled photo recognition")
+	}
+}
