@@ -8,6 +8,7 @@ import (
 	"embed"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/johnfercher/maroto/v2"
 	"github.com/johnfercher/maroto/v2/pkg/components/col"
@@ -38,9 +39,10 @@ const (
 // no filesystem path / runtime config dependency.
 //
 // One instance per process; the constructor loads the font
-// repository once. Render is goroutine-safe — every call builds a
-// fresh maroto.Maroto from the shared cfg.
+// repository once. Render is goroutine-safe via a mutex —
+// gofpdf mutates shared font state during generation.
 type PDFGenerator struct {
+	mu  sync.Mutex
 	cfg *entity.Config
 }
 
@@ -80,9 +82,12 @@ func NewPDFGenerator() (*PDFGenerator, error) {
 }
 
 // Render builds a fresh maroto document, populates header / meta /
-// sections, and returns the raw PDF bytes. Per-call allocation is
-// intentional — maroto's builder is not safe for concurrent reuse.
+// sections, and returns the raw PDF bytes. Serialised via mu
+// because gofpdf's font subsystem races on shared config state.
 func (g *PDFGenerator) Render(_ context.Context, input GenerationInput) ([]byte, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	m := maroto.New(g.cfg)
 	g.addHeader(m, input)
 
