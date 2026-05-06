@@ -21,9 +21,23 @@ type Config struct {
 	OAuth           OAuthConfig
 	TelegramBot     TelegramBotConfig
 	LLM             LLMDefaultConfig
+	Media           MediaConfig
 	FrontendBaseURL string
 	Extractor       ExtractorConfig
 	Generator       GeneratorConfig
+}
+
+// MediaConfig holds the dedicated provider keys for the bot's
+// photo-OCR (Anthropic Claude Vision) and voice-STT (OpenAI Whisper)
+// pipelines (issue #8). Both keys are optional — when missing, the
+// bot replies with a "feature unavailable" message rather than
+// dereferencing a nil adapter. Models default to current production
+// IDs so a bare ANTHROPIC_API_KEY / OPENAI_API_KEY is enough to opt in.
+type MediaConfig struct {
+	AnthropicAPIKey string
+	VisionModel     string
+	OpenAIAPIKey    string
+	WhisperModel    string
 }
 
 // ExtractorConfig gates the document-pipeline module (PR-B series).
@@ -128,6 +142,12 @@ func Load() Config {
 			APIKey:   os.Getenv("LLM_API_KEY"),
 			Model:    cmp.Or(os.Getenv("LLM_MODEL"), "claude-sonnet-4-20250514"),
 			BaseURL:  os.Getenv("LLM_BASE_URL"),
+		},
+		Media: MediaConfig{
+			AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
+			VisionModel:     cmp.Or(os.Getenv("VISION_MODEL"), "claude-sonnet-4-20250514"),
+			OpenAIAPIKey:    os.Getenv("OPENAI_API_KEY"),
+			WhisperModel:    cmp.Or(os.Getenv("WHISPER_MODEL"), "whisper-1"),
 		},
 		Extractor: ExtractorConfig{
 			Enabled:  os.Getenv("FEATURE_DOCUMENT_PIPELINE_ENABLED") == "true",

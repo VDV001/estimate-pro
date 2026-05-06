@@ -368,8 +368,8 @@ func main() {
 		&botPasswordResetAdapter{authUC: authUC},
 		botExtraction,
 		&botReporterAdapter{baseURL: cfg.FrontendBaseURL},
-		nil, // textExtractor — wired in PR-issue-8 step 5
-		nil, // speechRecognizer — wired in PR-issue-8 step 5
+		buildTextExtractor(cfg.Media),
+		buildSpeechRecognizer(cfg.Media),
 	)
 	botH := botHandler.New(botUC, cfg.TelegramBot.WebhookSecret)
 
@@ -432,6 +432,31 @@ func main() {
 		slog.Error("server shutdown error", "error", err)
 	}
 	slog.Info("server stopped")
+}
+
+// buildTextExtractor returns a Claude-Vision adapter when an
+// Anthropic API key is configured, or a typed-nil interface so the
+// bot replies with a "feature unavailable" message instead of crashing
+// on a nil dereference. Returning the named interface (not the
+// concrete *ClaudeVisionAdapter) is critical: assigning a nil concrete
+// pointer to an interface variable produces a non-nil interface, which
+// breaks the bot's nil-check (the same trap covered by
+// testBotDeps.build in bot_test.go).
+func buildTextExtractor(cfg config.MediaConfig) botUsecase.TextExtractor {
+	if cfg.AnthropicAPIKey == "" {
+		slog.Info("buildTextExtractor: ANTHROPIC_API_KEY not set — photo OCR disabled")
+		return nil
+	}
+	return botLLM.NewClaudeVisionAdapter(cfg.AnthropicAPIKey, cfg.VisionModel, "")
+}
+
+// buildSpeechRecognizer mirrors buildTextExtractor for OpenAI Whisper.
+func buildSpeechRecognizer(cfg config.MediaConfig) botUsecase.SpeechRecognizer {
+	if cfg.OpenAIAPIKey == "" {
+		slog.Info("buildSpeechRecognizer: OPENAI_API_KEY not set — voice STT disabled")
+		return nil
+	}
+	return botLLM.NewWhisperAdapter(cfg.OpenAIAPIKey, cfg.WhisperModel, "")
 }
 
 // workspaceCreatorAdapter adapts WorkspaceRepository to auth domain's WorkspaceCreator interface.
